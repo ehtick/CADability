@@ -1319,7 +1319,10 @@ namespace CADability
                         allFaces.Add(kv.Value);
                     }
                 }
-                PaintFacesCache = paintTo3D.MakeList(allFaces);
+
+                if (allFaces.Count > 0)
+                    PaintFacesCache = paintTo3D.MakeList(allFaces);
+
                 List<IPaintTo3DList> allTransparent = new List<IPaintTo3DList>();
                 foreach (KeyValuePair<Layer, IPaintTo3DList> kv in model.layerTransparentDisplayList)
                 {

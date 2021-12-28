@@ -111,6 +111,14 @@
     <Compile Include="MenuManager.cs">
       <SubType>Component</SubType>
     </Compile>
+    <Compile Include="OpenGL\CharacterDisplayInfo.cs" />
+    <Compile Include="OpenGL\FontDisplayList.cs" />
+    <Compile Include="OpenGL\MoveFacesBehindEdgesOffset.cs" />
+    <Compile Include="OpenGL\OpenGlList.cs" />
+    <Compile Include="OpenGL\OpenGLResourceManager.cs" />
+    <Compile Include="OpenGL\PaintToOpenGL.cs" />
+    <Compile Include="OpenGL\PaintToOpenGLException.cs" />
+    <Compile Include="OpenGL\State.cs" />
     <Compile Include="PaintToGDI.cs" />
     <Compile Include="ProgressForm.cs">
       <SubType>Form</SubType>
@@ -124,7 +132,6 @@
     <Compile Include="CadForm.Designer.cs">
       <DependentUpon>CadForm.cs</DependentUpon>
     </Compile>
-    <Compile Include="PaintToOpenGL.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="PropertyPage.cs">
       <SubType>Component</SubType>

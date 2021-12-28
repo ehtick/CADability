@@ -295,7 +295,7 @@ namespace CADability
         {
             MainFrame = this;
             actionStack = new ActionStack(this);
-            modelViews = new Dictionary<string, ModelView>();
+            modelViews = new Dictionary<string, ModelView>();            
 #if !WEBASSEMBLY
             layoutViews = new Dictionary<string, LayoutView>();
             gdiViews = new List<GDI2DView>();

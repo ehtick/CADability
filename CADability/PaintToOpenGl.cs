@@ -367,7 +367,7 @@ namespace CADability
         /// </summary>
         IDisposable FacesBehindEdgesOffset { get; }
         /// <summary>
-        /// Will be called when the assoziated control is closed.
+        /// Will be called when the associated control is closed.
         /// </summary>
         void Dispose();
         /// <summary>
@@ -657,11 +657,10 @@ namespace CADability
     }
 
 
-    public interface IPaintTo3DList
+    public interface IPaintTo3DList : IDisposable
     {
         string Name { get; set; }
-        List<IPaintTo3DList> containedSubLists { set; }
-        void Dispose();
+        List<IPaintTo3DList> containedSubLists { set; }        
     }
 
     /// <summary>

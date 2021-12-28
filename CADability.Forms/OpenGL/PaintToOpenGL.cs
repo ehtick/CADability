@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading;
-using System.Threading.Tasks;
 using System.Runtime.InteropServices;
 using CADability.Attribute;
 using CADability.GeoObject;
@@ -12,27 +11,17 @@ using System.Windows.Forms;
 using MathNet.Numerics.LinearAlgebra.Double;
 
 
-namespace CADability.Forms
+namespace CADability.Forms.OpenGL
 {
-    public class PaintToOpenGLException : ApplicationException
-    {
-        internal PaintToOpenGLException(String msg)
-            : base(msg)
-        {
-            if (!Settings.GlobalSettings.GetBoolValue("DontUse.WindowsForms", false))
-                MessageBox.Show(msg);
-        }
-    }
     /// <summary>
     /// Implementation of <see cref="IPaintTo3D"/> via OpenGL
     /// </summary>
     public class PaintToOpenGL : IPaintTo3D
     {
         #region IPaintTo3D data
-        public static int debugNumTriangles = 0;
-        public static Thread MainThread = null;
-        public static List<IntPtr> ContextsToDelete = new List<IntPtr>();
-        public static List<IntPtr> activeRenderContexts = new List<IntPtr>();
+        public int debugNumTriangles = 0;
+        public Thread MainThread = null;
+        public List<IntPtr> ContextsToDelete = new List<IntPtr>();
         bool paintSurfaces;
         bool paintEdges;
         bool paintSurfaceEdges;
@@ -46,40 +35,33 @@ namespace CADability.Forms
         bool useLineWidth;
         double precision;
         double pixelToWorld;
-        double[] linePattern;
-        const int selectBufSize = 1000; // const ist immer auch static
-        int[] selectBuf;
         int clientwidth, clientheight;
-        Dictionary<System.Drawing.Bitmap, byte[]> iconCache;
-        struct state
-        {   // der state wird in einem Stack gehalten und wieder restauriert
-            // da können noch mehr Dinge dazukommen
-            public bool useZBuffer;
-            public bool blending;
-        }
-        Stack<state> stateStack;
-        GeoVector projectionDirection;
+        Stack<State> stateStack = new Stack<State>();
         bool isPerspective;
-        Color backgroundColor; // Die Hintergrundfarbe um sicherzustellen, dass nicht mit dieser farbe
-                               // gezeichnet wird
+        Color backgroundColor; // Die Hintergrundfarbe um sicherzustellen, dass nicht mit dieser farbe gezeichnet wird
         Color selectColor;
 
-        // Glu.GLUnurbs nurbsRenderer;
         OpenGlList currentList;
         IntPtr deviceContext = IntPtr.Zero, renderContext = IntPtr.Zero;
-        IntPtr controlHandle = IntPtr.Zero;
-        byte accumBits = 0, colorBits = 32, depthBits = 16, stencilBits = 0;
-        static IntPtr MainRenderContext = IntPtr.Zero;
-        static IntPtr LastRenderContext = IntPtr.Zero;
-        private static List<System.Drawing.Bitmap> bitmapList = null;
-        internal static List<System.Drawing.Bitmap> BitmapList
+        byte accumBits = 0, colorBits = 32, depthBits = 16;
+        
+        IntPtr MainRenderContext = IntPtr.Zero;
+        IntPtr LastRenderContext = IntPtr.Zero;
+
+        OpenGLResourceManager resManager = new OpenGLResourceManager();
+
+
+        public GeoVector ProjectionDirection { get; private set; }
+
+        private List<Bitmap> bitmapList = null;
+        internal List<Bitmap> BitmapList
         {
             get
             {
                 if (bitmapList == null)
                 {
-                    bitmapList = new List<System.Drawing.Bitmap>();
-                    System.Drawing.Bitmap bmp;
+                    bitmapList = new List<Bitmap>();
+                    Bitmap bmp;
                     bmp = BitmapTable.GetBitmap("PointSymbols.bmp");
                     // PointSymbols.bmp and PointSymbolsB.bmp (B for bold) must have this form:
                     // 6 square pointsymbols horizontally placed with and odd number of pixels.
@@ -113,92 +95,13 @@ namespace CADability.Forms
                     imageList.Images.Add(bmp);
                     for (int i = 0; i < imageList.Images.Count; ++i)
                     {
-                        bitmapList.Add(imageList.Images[i] as System.Drawing.Bitmap);
+                        bitmapList.Add(imageList.Images[i] as Bitmap);
                     }
                 }
                 return bitmapList;
             }
         }
 
-        // für Fonts:
-        struct CharacterDisplayList
-        {
-            public Gdi.GLYPHMETRICSFLOAT glyphmetrics; // Größe und Abstand
-            public OpenGlList displaylist; //zum darstellen, mit Besitz
-        }
-        class FontDisplayList : Dictionary<char, CharacterDisplayList>
-        {
-            public string fontName;
-            public IntPtr deviceContext;
-            public void AssertCharacter(char c)
-            {
-                CharacterDisplayList cdl;
-                if (!TryGetValue(c, out cdl))
-                {
-                    IntPtr fnt = Gdi.CreateFont(100, 0, 0, 0, 0, false, false, false, 1, 0, 0, 0, 0, fontName);
-                    IntPtr oldfont = Gdi.SelectObject(deviceContext, fnt);
-                    Gdi.GLYPHMETRICSFLOAT[] glyphmetrics = new Gdi.GLYPHMETRICSFLOAT[1];
-                    OpenGlList list = new OpenGlList(fontName + "-" + c);
-                    if (Wgl.wglUseFontOutlines(deviceContext, (int)c, 1, list.ListNumber, 20.0f, 0.0f, Wgl.WGL_FONT_POLYGONS, glyphmetrics))
-                    {
-#if DEBUG
-                        //System.Diagnostics.Trace.WriteLine("wglUseFontOutlines success: " + deviceContext.ToString() + ", " + c);
-#endif
-                        cdl.glyphmetrics = glyphmetrics[0];
-                        cdl.displaylist = list;
-                        this[c] = cdl;
-                    }
-                    else
-                    {
-                        fnt = Gdi.CreateFont(-100, 0, 0, 0, 0, false, false, false, 1, 0, 0, 0, 0, fontName);
-                        bool dbg = Wgl.wglUseFontOutlines(deviceContext, (int)c, 1, list.ListNumber, 20.0f, 0.0f, Wgl.WGL_FONT_POLYGONS, glyphmetrics);
-                    }
-                    Gdi.SelectObject(deviceContext, oldfont);
-                    Gdi.DeleteObject(fnt);
-                }
-            }
-        }
-        // alle FontDisplayListen statisch, da von mehreren renderContexts aus gleichzeitig benutzt
-        static Dictionary<string, FontDisplayList> fonts = new Dictionary<string, FontDisplayList>();
-        Dictionary<string, FontDisplayList> localFonts;
-        private FontDisplayList GetFontDisplayList(string fontName)
-        {
-            FontDisplayList res;
-            Dictionary<string, FontDisplayList> theFonts;
-            if (isBitmap) theFonts = localFonts;
-            else theFonts = fonts;
-            if (!theFonts.TryGetValue(fontName, out res))
-            {
-                res = new FontDisplayList();
-                res.fontName = fontName;
-                res.deviceContext = deviceContext;
-                // die Standardzeichen generieren (fehlt noch bold, italic)
-                // um den text selbst zu generieren könnte man wie folgt vorgehen:
-                // System.Drawing.Drawing2D.GraphicsPath, System.Drawing.Drawing2D.GraphicsPath. Flatten, 
-                // System.Drawing.Drawing2D.PathPointType
-                // eine Nurbs Ebene generieren und die polygone als Trimmkurve nehmen
-
-                //IntPtr fnt = Gdi.CreateFont(100, 0, 0, 0, 400, false, false, false, 1, 0, 0, 0, 0, fontName);
-                //IntPtr oldfont = Gdi.SelectObject(deviceContext, fnt);
-                //Gdi.GLYPHMETRICSFLOAT[] glyphmetrics = new Gdi.GLYPHMETRICSFLOAT[127 - 32];
-                //OpenGlList[] lists = OpenGlList.CreateMany(127 - 32);
-                //if (Wgl.wglUseFontOutlines(deviceContext, 32, 127 - 32, lists[0].ListNumber, 20.0f, 0.0f, Wgl.WGL_FONT_LINES, glyphmetrics))
-                //{
-                //    for (int i = 0; i < 127-32; ++i)
-                //    {
-                //        CharacterDisplayList cdl;
-                //        cdl.glyphmetrics = glyphmetrics[i];
-                //        cdl.displaylist = lists[i];
-                //        res[(char)(i + 32)] = cdl;
-                //    }
-                //}
-                //Gdi.SelectObject(deviceContext, oldfont);
-                //Gdi.DeleteObject(fnt);
-
-                theFonts[fontName] = res;
-            }
-            return res;
-        }
         public PaintToOpenGL(double precision = 1e-6)
         {
             try
@@ -213,24 +116,9 @@ namespace CADability.Forms
             paintSurfaceEdges = true;
             currentList = null;
             selectColor = Color.Yellow;
-            stateStack = new Stack<state>();
-            selectBuf = new int[selectBufSize]; // statisch für selektion
             lineWidthFactor = 10.0;
-            icons = new Dictionary<System.Drawing.Bitmap, IPaintTo3DList>();
         }
-        ~PaintToOpenGL()
-        {
-            OnDisposed(null, null);
-            // Dispose of device context
-            if (deviceContext != IntPtr.Zero && controlHandle != IntPtr.Zero)
-            {
-                User.ReleaseDC(controlHandle, deviceContext);
-            }
-#if DEBUG
-            //System.Diagnostics.Trace.WriteLine("deleting PaintToOpenGl");
-            //MessageBox.Show("deleting PaintToOpenGl");
-#endif
-        }
+
         public void SetClientSize(Size sz)
         {
             clientwidth = sz.Width;
@@ -238,35 +126,62 @@ namespace CADability.Forms
         }
         public void Init(IntPtr deviceContext, int width, int height, bool toBitmap)
         {
-            // CheckError(); // kein OpenGL
+            if (deviceContext == IntPtr.Zero)
+                throw new PaintToOpenGLException("Device Context is Zero");
 
             this.deviceContext = deviceContext;
-            isBitmap = toBitmap;
+            this.isBitmap = toBitmap;
 
+            SetupPixelFormat(deviceContext, toBitmap);
+
+            //Create rendering context
+            renderContext = resManager.CreateContext(deviceContext);
+
+            if (!toBitmap)
+            {
+                if (MainRenderContext == IntPtr.Zero)
+                {
+                    MainRenderContext = renderContext;
+                    LastRenderContext = renderContext;
+                }
+                else
+                {
+                    bool ok = Wgl.wglShareLists(LastRenderContext, renderContext);
+                    LastRenderContext = renderContext;
+                    if (!ok)
+                        MainRenderContext = renderContext;
+                }
+            }
+
+            clientwidth = width;
+            clientheight = height;
+
+            //Make this the current context
+            (this as IPaintTo3D).MakeCurrent();
+
+            //For debugging only:
+            //int dbgscentil;
+            //Gl.glGetIntegerv(Gl.GL_STENCIL_BITS, out dbgscentil);
+            //Gl.glGetIntegerv(Gl.GL_RED_BITS, out dbgscentil);
+            //Gl.glGetIntegerv(Gl.GL_DEPTH_BITS, out dbgscentil);
+
+            Gl.glShadeModel(Gl.GL_SMOOTH);
+            CheckError();
+        }
+
+        private void SetupPixelFormat(IntPtr deviceContext, bool toBitmap)
+        {
             //Setup pixel format
             Gdi.PIXELFORMATDESCRIPTOR pixelFormat = new Gdi.PIXELFORMATDESCRIPTOR();
-            //int numpf = Gdi.DescribePixelFormat(deviceContext, 1, (uint)0, IntPtr.Zero);
-            //uint pfdsize = (uint)Marshal.SizeOf(pixelFormat);
-            //for (int i = 0; i < numpf; i++)
-            //{
-            //    Gdi.DescribePixelFormat(deviceContext, i + 1, pfdsize, new IntPtr(&pixelFormat));
-            //    if ((pixelFormat.dwFlags & Gdi.PFD_SUPPORT_OPENGL) != 0 && (pixelFormat.dwFlags & Gdi.PFD_DRAW_TO_WINDOW) != 0 && (pixelFormat.dwFlags & Gdi.PFD_DOUBLEBUFFER) != 0)
-            //    {
-            //        System.Diagnostics.Trace.WriteLine(pixelFormat.cRedBits.ToString() + ", " + pixelFormat.cAlphaBits.ToString());
-            //    }
-            //}
 
             pixelFormat.nSize = (short)Marshal.SizeOf(pixelFormat);
             pixelFormat.nVersion = 1;
+
             if (toBitmap)
-            {
                 pixelFormat.dwFlags = Gdi.PFD_SUPPORT_OPENGL | Gdi.PFD_DRAW_TO_BITMAP;
-            }
             else
-            {
-                pixelFormat.dwFlags = Gdi.PFD_DRAW_TO_WINDOW | Gdi.PFD_SUPPORT_OPENGL |
-                    Gdi.PFD_DOUBLEBUFFER;
-            }
+                pixelFormat.dwFlags = Gdi.PFD_DRAW_TO_WINDOW | Gdi.PFD_SUPPORT_OPENGL | Gdi.PFD_DOUBLEBUFFER;
+
             pixelFormat.iPixelType = (byte)Gdi.PFD_TYPE_RGBA;
             pixelFormat.cColorBits = colorBits;
             pixelFormat.cRedBits = 0;
@@ -291,145 +206,15 @@ namespace CADability.Forms
             pixelFormat.dwVisibleMask = 0;
             pixelFormat.dwDamageMask = 0;
 
-            if (deviceContext == IntPtr.Zero)
-            {
-                throw new PaintToOpenGLException("CreateContexts: Unable to create an OpenGL device context");
-            }
-
             //Set pixel format
             int selectedFormat = Gdi.ChoosePixelFormat(deviceContext, ref pixelFormat);
-            // CheckError(); // kein OpenGL
 
             //Make sure the requested pixel format is available
             if (selectedFormat == 0)
-            {
-                throw new PaintToOpenGLException("CreateContexts: Unable to find a suitable pixel format");
-            }
+                throw new PaintToOpenGLException("SetupPixelFormat: Unable to find a suitable pixel format");
 
             if (!Gdi.SetPixelFormat(deviceContext, selectedFormat, ref pixelFormat))
-            {
-                int lastError = Marshal.GetLastWin32Error();
-                int pf = Gdi.GetPixelFormat(deviceContext);
-                lastError = Marshal.GetLastWin32Error();
-                throw new PaintToOpenGLException(string.Format("CreateContexts: Unable to set the requested pixel format ({0})", selectedFormat));
-            }
-
-            //Create rendering context
-            renderContext = Wgl.wglCreateContext(deviceContext);
-#if DEBUG
-            //System.Diagnostics.Trace.WriteLine("RenderContext created: " + renderContext.ToString());
-#endif
-            activeRenderContexts.Add(renderContext);
-            // CheckError(); kein OpenGL
-            // wir wollen nur einen Satz von Listen verwenden, sonst ist das mit dem Löschen der Listen
-            // ein Problem, da es die gleichen Nummern mehrfach gibt. Da das Löschen der Listen zu unberechenbaren
-            // Zeitpunkten kommt, werden die Listen sonst im falschen Kontext gelöscht
-            if (MainRenderContext == IntPtr.Zero)
-            {
-                if (!toBitmap)
-                {
-                    MainRenderContext = renderContext;
-                    LastRenderContext = renderContext;
-                    Application.ApplicationExit += new EventHandler(RemoveMainRenderContext);
-                }
-            }
-            else
-            {   // geht nur sorum, keine Ahnung warum. Der MainRenderContext darf nie gelöscht werden
-                if (!toBitmap)
-                {
-                    bool ok = Wgl.wglShareLists(LastRenderContext, renderContext);
-                    LastRenderContext = renderContext;
-                    if (!ok)
-                    {
-                        // ok = Wgl.wglShareLists(renderContext,MainRenderContext);
-                        MainRenderContext = renderContext;
-                        fonts = new Dictionary<string, FontDisplayList>();
-                    }
-                }
-            }
-
-            if (renderContext == IntPtr.Zero)
-            {
-                throw new PaintToOpenGLException("CreateContexts: Unable to create an OpenGL rendering context");
-            }
-            clientwidth = width;
-            clientheight = height;
-
-            //Make this the current context
-            (this as IPaintTo3D).MakeCurrent();
-
-            int dbgscentil;
-            Gl.glGetIntegerv(Gl.GL_STENCIL_BITS, out dbgscentil);
-            Gl.glGetIntegerv(Gl.GL_RED_BITS, out dbgscentil);
-            Gl.glGetIntegerv(Gl.GL_DEPTH_BITS, out dbgscentil);
-
-            // der Scentil Buffer hat bei mir 8 Bit, vermutlich der Alpha Wert für die Durchlässigkeit
-
-            //nurbsRenderer = Glu.gluNewNurbsRenderer();
-            //Glu.gluNurbsProperty(nurbsRenderer, Glu.GLU_SAMPLING_TOLERANCE, (float)precision);
-            Gl.glShadeModel(Gl.GL_SMOOTH);
-            CheckError();
-
-            if (toBitmap)
-            {
-                localFonts = new Dictionary<string, FontDisplayList>();
-            }
-            lock (ContextsToDelete)
-            {   // hier alle zu löschenden löschen, da ShareList shon gelaufen ist.
-                for (int i = 0; i < ContextsToDelete.Count; i++)
-                {
-                    bool ok = Wgl.wglDeleteContext(ContextsToDelete[i]);
-#if DEBUG
-                    //System.Diagnostics.Trace.WriteLine("RenderContext deleted: " + ContextsToDelete[i].ToString() + ", " + ok.ToString());
-#endif
-                    activeRenderContexts.Remove(ContextsToDelete[i]);
-                }
-                ContextsToDelete.Clear();
-            }
-            CheckError();
-        }
-        public bool UseSharedLists
-        {
-            get
-            {
-                return !isBitmap;
-            }
-        }
-        void RemoveMainRenderContext(object sender, EventArgs e)
-        {
-            OpenGlList.FreeLists();
-            OpenGlList.FreeAllOpenLists();
-            for (int i = 0; i < ContextsToDelete.Count; i++)
-            {
-                bool ok = Wgl.wglDeleteContext(ContextsToDelete[i]);
-#if DEBUG
-                //System.Diagnostics.Trace.WriteLine("RenderContext deleted: " + ContextsToDelete[i].ToString() + ", " + ok.ToString());
-#endif
-                activeRenderContexts.Remove(ContextsToDelete[i]);
-            }
-            ContextsToDelete.Clear();
-            for (int i = 0; i < activeRenderContexts.Count; i++)
-            {
-                bool ok = Wgl.wglDeleteContext(activeRenderContexts[i]);
-
-            }
-            try
-            {
-                // System.Diagnostics.Trace.WriteLine("RemoveMainRenderContext: " + MainRenderContext.ToString() + ", " + ok.ToString());
-                MainRenderContext = IntPtr.Zero;
-                fonts = new Dictionary<string, FontDisplayList>(); // löschen
-
-                //Dispose of device context das ist der von MainRenderContext
-                if (deviceContext != IntPtr.Zero)
-                {
-                    if (sender is Control) User.ReleaseDC((sender as Control).Handle, deviceContext);
-                    deviceContext = IntPtr.Zero;
-                }
-                // MessageBox.Show("RemoveMainRenderContext");
-                IntPtr mh = Kernel.GetModuleHandle("opengl32.dll");
-                if (mh != IntPtr.Zero) Kernel.FreeLibrary(mh);
-            }
-            catch { }
+                throw new PaintToOpenGLException(string.Format("SetupPixelFormat: Unable to set the requested pixel format ({0})", selectedFormat));
         }
 
         // Mit HashCode und Equals hat es folgende Bewandnis:
@@ -445,51 +230,14 @@ namespace CADability.Forms
             if (other == null) return false;
             return renderContext == other.renderContext;
         }
-        void OnDisposed(object sender, EventArgs e)
-        {
-            if (MainRenderContext != IntPtr.Zero)
-            {
-                // OpenGlList.FreeLists();
-                // kommt aus dem falschen thread, darf hier nicht ausgelöst werden
-            }
-            //Dispose of rendering context, MainRenderContext wird bei ApplicationExtit gelöscht
-            if (renderContext == MainRenderContext)
-            {   //MainRenderContext  darf nie gelöscht werden
-                renderContext = IntPtr.Zero;
-                //Dispose of device context
-                //if (deviceContext != IntPtr.Zero)
-                //{
-                //    if (sender is Control) User.ReleaseDC((sender as Control).Handle, deviceContext);
-                //    deviceContext = IntPtr.Zero;
-                //}
-            }
-            else if (renderContext != IntPtr.Zero)
-            {
-                //if (renderContext == MainRenderContext)
-                //{
-                //    MainRenderContext = IntPtr.Zero;
-                //    FontCache.GlobalFontCache.Clear();
-                //}
-                // bool ok = Wgl.wglMakeCurrent(deviceContext, renderContext);
-                // xxx if (ok) Wgl.wglDeleteContext(renderContext);
-                lock (ContextsToDelete)
-                {
-                    ContextsToDelete.Add(renderContext);
-                }
-                renderContext = IntPtr.Zero;
 
-                // Device Context wird im Destruktor freigegeben
-
-                //Dispose of device context
-                //if (deviceContext != IntPtr.Zero)
-                //{
-                //    if (sender is Control) User.ReleaseDC((sender as Control).Handle, deviceContext);
-                //    deviceContext = IntPtr.Zero;
-                //}
-            }
-        }
         #endregion
         #region IPaintTo3D implementation
+        Dictionary<Bitmap, IPaintTo3DList> icons = new Dictionary<Bitmap, IPaintTo3DList>();
+        Dictionary<Bitmap, IPaintTo3DList> bitmaps = new Dictionary<Bitmap, IPaintTo3DList>();
+        Dictionary<Bitmap, uint> textures = new Dictionary<Bitmap, uint>();
+
+
         bool IPaintTo3D.PaintSurfaces
         {
             get { return paintSurfaces; }
@@ -562,141 +310,54 @@ namespace CADability.Forms
                 return PaintCapabilities.Standard | PaintCapabilities.ZoomIndependentDisplayList;
             }
         }
-        Dictionary<System.Drawing.Bitmap, IPaintTo3DList> icons;
-        static Dictionary<System.Drawing.Bitmap, IPaintTo3DList> bitmaps = new Dictionary<System.Drawing.Bitmap, IPaintTo3DList>();
-        static Dictionary<System.Drawing.Bitmap, uint> textures = new Dictionary<System.Drawing.Bitmap, uint>();
+
         internal void Init(Control ctrl)
         {
+            IntPtr deviceContext = resManager.ConnectToControl(ctrl);
+            Init(deviceContext, ctrl.ClientSize.Width, ctrl.ClientSize.Height, false);
 
-            //Setup the control's styles -- wird im CondorControl implementiert
-            //Make sure the handle for this control has been created
-            if (ctrl.Handle == IntPtr.Zero)
-            {
-                throw new PaintToOpenGLException("CreateContexts: The control's window handle has not been created.");
-            }
+            //Find the owner windows of this control
+            Form controlOwner = ctrl.FindForm();
+            if (controlOwner is null)
+                throw new PaintToOpenGLException("Unable to find owner of control");
 
-            controlHandle = ctrl.Handle;
-            Init(User.GetDC(ctrl.Handle), ctrl.ClientSize.Width, ctrl.ClientSize.Height, false);
-
-            // ctrl.Disposed += new EventHandler(OnDisposed);
-            ctrl.HandleDestroyed += new EventHandler(OnDisposed); // hofentlich kommt der synchron (im selben thread), denn OnDisposed kommt manchmal asynchron
-                                                                  // und das macht OpenGL nicht mit
+            //Attach to the FormClosed Event which will occure if the owner window is destroyed
+            //and OpenGL needs to be shut down for this window.
+            //This event should be always synchronous as it is called from the UI Thread - unlike Disposed
+            controlOwner.FormClosed += ControlOwner_FormClosed;
 
             Gl.glPixelStorei(Gl.GL_UNPACK_ALIGNMENT, 1);
             Gl.glPixelStorei(Gl.GL_PACK_ALIGNMENT, 1);
-            //byte[, ,] pixels = new byte[64, 64, 3];
-            //for (int i = 0; i < 64; ++i)
-            //{
-            //    for (int j = 0; j < 64; ++j)
-            //    {
-            //        byte c;
-            //        if ((j & 0x08) != (i & 0x08)) c = 255;
-            //        else c = 0;
-            //        pixels[i, j, 0] = c;
-            //        pixels[i, j, 1] = c;
-            //        pixels[i, j, 2] = c;
-            //    }
-            //}
-            //CheckError();
-            //Gl.glTexImage2D(Gl.GL_TEXTURE_2D, 0, 3, 64, 64, 0, Gl.GL_RGB, Gl.GL_UNSIGNED_BYTE, pixels);
-            //Gl.glTexParameterf(Gl.GL_TEXTURE_2D, Gl.GL_TEXTURE_WRAP_S, Gl.GL_CLAMP);
-            //Gl.glTexParameterf(Gl.GL_TEXTURE_2D, Gl.GL_TEXTURE_WRAP_T, Gl.GL_CLAMP);
-            //Gl.glTexParameterf(Gl.GL_TEXTURE_2D, Gl.GL_TEXTURE_MAG_FILTER, Gl.GL_NEAREST);
-            //Gl.glTexParameterf(Gl.GL_TEXTURE_2D, Gl.GL_TEXTURE_MIN_FILTER, Gl.GL_NEAREST);
-            //Gl.glTexEnvf(Gl.GL_TEXTURE_ENV, Gl.GL_TEXTURE_ENV_MODE, Gl.GL_DECAL);
+
             CheckError();
         }
+
+        private void ControlOwner_FormClosed(object sender, FormClosedEventArgs e)
+        {
+            if (resManager != null)
+            {
+                resManager.Dispose();
+                resManager = null;
+            }
+        }
+
         internal void Disconnect(Control ctrl)
         {
             if (ctrl != null)
             {
-                // OnDisposed(null, null); darf hier nicht stehen, da sonst das View wechseln nicht klappt
-                // ctrl.Disposed -= new EventHandler(OnDisposed); hängt nicht mehr an Disposed
-                // kann man ihn gleich wegmachen, hier sind wir synchron, warum sollte das nicht gehen?
                 if (renderContext != IntPtr.Zero && renderContext != MainRenderContext)
                 {
-                    // Wgl.wglGetCurrentContext();
-                    // bool ok = Wgl.wglMakeCurrent(deviceContext, renderContext);
-                    // if (ok) 
-                    bool ok = false;
-                    // xxx ok = Wgl.wglDeleteContext(renderContext);
-                    // man darf ihn hier nicht löschen, da er noch als Context für die SharedLists gebraucht wird
-                    lock (ContextsToDelete)
-                    {
-                        ContextsToDelete.Add(renderContext);
-                    }
                     renderContext = IntPtr.Zero;
-                    // Device Context wird im Destruktor freigegeben
-
-                    //Dispose of device context
-                    //if (deviceContext != IntPtr.Zero)
-                    //{
-                    //    User.ReleaseDC(ctrl.Handle, deviceContext);
-                    //    deviceContext = IntPtr.Zero;
-                    //}
-
-                    ctrl.HandleDestroyed -= new EventHandler(OnDisposed); // ist ja schon entfernt
-
                 }
-
-                // CheckError(); // kein OpenGL
             }
         }
 
         private void CheckError(bool dontDebug = false)
         {
-#if DEBUG_OPENGL
-            if (MainThread != Thread.CurrentThread)
-            {
-                MessageBox.Show("Different thread in OpenGL calls. Some OpenGL implementations only accepts single threaded applications");
-            }
-#endif
             int error = Gl.glGetError();
             if (error == 0) return;
-            // für Hilgers Debug:
-            //if (!dontDebug)
-            //{
-            //    using (StreamWriter w = File.AppendText(@"C:\Temp\" + Environment.UserName.ToUpper() + ".CADability.log"))
-            //    {
-            //        w.WriteLine(DateTime.Now.ToShortTimeString() + ": error in OpenGl (" + error.ToString("X") + ")");
-            //        System.Diagnostics.StackTrace st = new System.Diagnostics.StackTrace(true);
-            //        string str = "";
-            //        for (int i = 0; i < st.FrameCount; i++)
-            //        {
-            //            System.Diagnostics.StackFrame sf = st.GetFrame(i);
-            //            str += " Method: "+ sf.GetMethod().ToString() + ", " + sf.GetFileName() +", "+ sf.GetFileLineNumber().ToString();
-            //    }
-            //        w.WriteLine(str);
-            //    }
-            //}
-            // Ende Hilgers Debug 
-            if (error == Gl.GL_OUT_OF_MEMORY)
-            {
-                currentList = null; // die bleibt sonst offen
-                                    // System.Diagnostics.Trace.WriteLine("GL_OUT_OF_MEMORY");
-                                    //System.Diagnostics.StackTrace st = new System.Diagnostics.StackTrace(true);
-                                    //string stackIndent = "";
-                                    //for (int i = 0; i < st.FrameCount; i++)
-                                    //{
-                                    //    System.Diagnostics.StackFrame sf = st.GetFrame(i);
-                                    //    Console.WriteLine();
-                                    //    Console.WriteLine(stackIndent + " Method: {0}",
-                                    //        sf.GetMethod());
-                                    //    Console.WriteLine(stackIndent + " File: {0}",
-                                    //        sf.GetFileName());
-                                    //    Console.WriteLine(stackIndent + " Line Number: {0}",
-                                    //        sf.GetFileLineNumber());
-                                    //    stackIndent += "  ";
-                                    //}
-                                    //throw new PaintTo3DOutOfMemory();
-            }
-            else
-            {
-#if DEBUG_OPENGL
-                throw new ApplicationException("DEBUG: error in OpenGl (" + error.ToString("X") + ")");
-#endif
-            }
 
+            throw new PaintToOpenGLException("Error in OpenGl (" + error.ToString("X") + ")");
         }
         void IPaintTo3D.Dispose()
         {
@@ -709,14 +370,14 @@ namespace CADability.Forms
         }
         void IPaintTo3D.PushState()
         {
-            state s;
+            State s;
             s.blending = Gl.glIsEnabled(Gl.GL_BLEND) != 0;
             s.useZBuffer = Gl.glIsEnabled(Gl.GL_DEPTH_TEST) != 0;
             stateStack.Push(s);
         }
         void IPaintTo3D.PopState()
         {
-            state s = stateStack.Pop();
+            State s = stateStack.Pop();
             if (s.blending) Gl.glEnable(Gl.GL_BLEND);
             else Gl.glDisable(Gl.GL_BLEND);
             if (s.useZBuffer) Gl.glEnable(Gl.GL_DEPTH_TEST);
@@ -754,7 +415,7 @@ namespace CADability.Forms
             Gl.glClear(Gl.GL_COLOR_BUFFER_BIT | Gl.GL_DEPTH_BUFFER_BIT);
             CheckError();
         }
-        void IPaintTo3D.AvoidColor(System.Drawing.Color color)
+        void IPaintTo3D.AvoidColor(Color color)
         {
             backgroundColor = color;
         }
@@ -789,7 +450,7 @@ namespace CADability.Forms
             pmat[15] = mm[3, 3];
 
             GeoVector v = projection.Direction;
-            projectionDirection = projection.Direction;
+            ProjectionDirection = projection.Direction;
             isPerspective = projection.IsPerspective;
             v = projection.InverseProjection * new GeoVector(0.5, 0.3, -1.0);
             pixelToWorld = projection.DeviceToWorldFactor;
@@ -996,7 +657,7 @@ namespace CADability.Forms
             }
             else
             {
-                System.Drawing.Bitmap bmp = null;
+                Bitmap bmp = null;
                 if ((pointSymbol & CADability.GeoObject.PointSymbol.Select) != 0)
                 {
                     bmp = BitmapList[12];
@@ -1010,7 +671,7 @@ namespace CADability.Forms
                 int offset = 0;
                 if ((this as IPaintTo3D).UseLineWidth) offset = 6; // so wird gesteuert dass bei nur dünn die dünnen Punkte und bei
                                                                    // mit Linienstärke ggf. die dicken Punkte angezeigt werden (Forderung PFOCAD)
-                switch ((GeoObject.PointSymbol)((int)pointSymbol & 0x07))
+                switch ((PointSymbol)((int)pointSymbol & 0x07))
                 {
                     case CADability.GeoObject.PointSymbol.Empty:
                         bmp = null;
@@ -1108,7 +769,7 @@ namespace CADability.Forms
             //(this as IPaintTo3D).PopState();
             CheckError();
         }
-        void IPaintTo3D.PrepareIcon(System.Drawing.Bitmap icon)
+        void IPaintTo3D.PrepareIcon(Bitmap icon)
         {   // Für ein Icon wird eine kleine DisplayList gemacht, in der großen stürzt es oft ab
             if (currentList != null) throw new ApplicationException("PrepareIcon called with display list open");
             if (!icons.ContainsKey(icon))
@@ -1151,7 +812,7 @@ namespace CADability.Forms
                 icons[icon] = (this as IPaintTo3D).CloseList();
             }
         }
-        void IPaintTo3D.PrepareBitmap(System.Drawing.Bitmap bitmap, int xoffset, int yoffset)
+        void IPaintTo3D.PrepareBitmap(Bitmap bitmap, int xoffset, int yoffset)
         {
             if (currentList != null) throw new ApplicationException("PrepareBitmap called with display list open");
             if (!bitmaps.ContainsKey(bitmap))
@@ -1199,7 +860,7 @@ namespace CADability.Forms
         {
             // siehe http://www.opengl.org/resources/features/fontsurvey/ für andere Font Methoden
             // dieses hier ist zu Resourcenträchtig
-            FontDisplayList fdl = GetFontDisplayList(fontName);
+            FontDisplayList fdl = resManager.GetFontDisplayList(fontName, deviceContext);
             for (int i = 0; i < textString.Length; ++i)
             {
                 fdl.AssertCharacter(textString[i]);
@@ -1212,8 +873,8 @@ namespace CADability.Forms
             int offset = 0;
             if ((this as IPaintTo3D).UseLineWidth) offset = 6; // so wird gesteuert dass bei nur dünn die dünnen Punkte und bei
             // mit Linienstärke ggf. die dicken Punkte angezeigt werden (Forderung PFOCAD)
-            System.Drawing.Bitmap bmp = null;
-            switch ((GeoObject.PointSymbol)((int)symbol & 0x07))
+            Bitmap bmp = null;
+            switch ((PointSymbol)((int)symbol & 0x07))
             {
                 case CADability.GeoObject.PointSymbol.Empty:
                     bmp = null;
@@ -1261,7 +922,7 @@ namespace CADability.Forms
                 (this as IPaintTo3D).PrepareIcon(bmp);
             }
         }
-        void IPaintTo3D.PrepareBitmap(System.Drawing.Bitmap bitmap)
+        void IPaintTo3D.PrepareBitmap(Bitmap bitmap)
         {   // Mechanismus zum Entfernen aus dem Dictionary und vor allem aus OpenGL fehlt noch.
             // man bräuchte eine Art OnDispose vom Bitmap, aber das gibt es nicht...
             if (!textures.ContainsKey(bitmap))
@@ -1321,7 +982,7 @@ namespace CADability.Forms
                 CheckError();
             }
         }
-        void IPaintTo3D.RectangularBitmap(System.Drawing.Bitmap bitmap, GeoPoint location, GeoVector directionWidth, GeoVector directionHeight)
+        void IPaintTo3D.RectangularBitmap(Bitmap bitmap, GeoPoint location, GeoVector directionWidth, GeoVector directionHeight)
         {
             uint texName;
             if (textures.TryGetValue(bitmap, out texName))
@@ -1353,12 +1014,12 @@ namespace CADability.Forms
                 CheckError();
             }
         }
-        void IPaintTo3D.Text(GeoVector lineDirection, GeoVector glyphDirection, GeoPoint location, string fontName, string textString, FontStyle fontStyle, Text.AlignMode alignment, CADability.GeoObject.Text.LineAlignMode lineAlignment)
+        void IPaintTo3D.Text(GeoVector lineDirection, GeoVector glyphDirection, GeoPoint location, string fontName, string textString, FontStyle fontStyle, Text.AlignMode alignment, Text.LineAlignMode lineAlignment)
         {
             if (currentList != null) currentList.SetHasContents();
             if (textString.Length == 0) return;
             GeoVector normal = lineDirection ^ glyphDirection;
-            FontDisplayList fdl = GetFontDisplayList(fontName);
+            FontDisplayList fdl = resManager.GetFontDisplayList(fontName, deviceContext);
             if (alignment != GeoObject.Text.AlignMode.Baseline || lineAlignment != GeoObject.Text.LineAlignMode.Left)
             {
                 // hier location modifizieren gemäß alignment
@@ -1374,10 +1035,10 @@ namespace CADability.Forms
                 // die Mitte wäre dann -0.25, man könnte aber auch bei der Mitte die echte Mitte des Strings nehmen
                 for (int i = 0; i < textString.Length; ++i)
                 {
-                    CharacterDisplayList cdl;
+                    CharacterDisplayInfo cdl;
                     if (fdl.TryGetValue(textString[i], out cdl))
                     {
-                        Gdi.GLYPHMETRICSFLOAT gm = cdl.glyphmetrics;
+                        Gdi.GLYPHMETRICSFLOAT gm = cdl.Glyphmetrics;
                         dx += gm.gmfBlackBoxX;
                         dy += gm.gmfBlackBoxY;
                         yoffset = gm.gmfptGlyphOrigin.Y;
@@ -1431,10 +1092,10 @@ namespace CADability.Forms
             Gl.glLoadMatrixd(pmat);
             for (int i = 0; i < textString.Length; ++i)
             {
-                CharacterDisplayList cdl;
+                CharacterDisplayInfo cdl;
                 if (fdl.TryGetValue(textString[i], out cdl))
                 {
-                    Gl.glCallList(cdl.displaylist.ListNumber);
+                    Gl.glCallList(cdl.Displaylist.ListNumber);
                     ++dbgNumChar;
                 }
             }
@@ -1533,7 +1194,7 @@ namespace CADability.Forms
             if (useLineWidth) Gl.glEnable(Gl.GL_LINE_SMOOTH);
             CheckError();
         }
-        void IPaintTo3D.DisplayIcon(GeoPoint p, System.Drawing.Bitmap icon)
+        void IPaintTo3D.DisplayIcon(GeoPoint p, Bitmap icon)
         {
             if (currentList != null) currentList.SetHasContents();
             if (icons.ContainsKey(icon))
@@ -1569,7 +1230,7 @@ namespace CADability.Forms
             }
             CheckError();
         }
-        void IPaintTo3D.DisplayBitmap(GeoPoint p, System.Drawing.Bitmap bitmap)
+        void IPaintTo3D.DisplayBitmap(GeoPoint p, Bitmap bitmap)
         {
             if (currentList != null) currentList.SetHasContents();
             IPaintTo3DList list;
@@ -1657,7 +1318,7 @@ namespace CADability.Forms
                 (this as IPaintTo3D).PushState();
                 Gl.glMatrixMode(Gl.GL_MODELVIEW);
                 Gl.glLoadIdentity();
-                Gl.glTranslated(-2 * precision * projectionDirection.x, -2 * precision * projectionDirection.y, -2 * precision * projectionDirection.z);
+                Gl.glTranslated(-2 * precision * ProjectionDirection.x, -2 * precision * ProjectionDirection.y, -2 * precision * ProjectionDirection.z);
 
                 //Gl.glEnable(Gl.GL_TEXTURE_2D); 
                 if (wobbleRadius == -1) Gl.glClear(Gl.GL_DEPTH_BUFFER_BIT); // Select findet über den Objekten statt, alte ZBuffer Inhalte werden gelöscht
@@ -1786,60 +1447,28 @@ namespace CADability.Forms
         //    Gl.glEnable(Gl.GL_DEPTH_TEST);
         //    CheckError();
         //}
+        List<OpenGlList> listMaster = new List<OpenGlList>();
+
+
         void IPaintTo3D.OpenList(string name)
         {
-            if (currentList != null) throw new PaintToOpenGLException("IPaintTo3DList: nested lists not allowed");
-            currentList = new OpenGlList(name);
-            currentList.Open();
-            //System.Diagnostics.Trace.WriteLine("open list: " + currentList.ListNumber.ToString());
-            CheckError();
+            resManager.OpenList(name);            
         }
+
         IPaintTo3DList IPaintTo3D.CloseList()
         {
-            if (currentList != null) currentList.Close();
-            OpenGlList res = currentList;
-            currentList = null;
-            CheckError();
-            //System.Diagnostics.Trace.WriteLine("close list: " + res.ListNumber.ToString());
-            if (res != null && res.HasContents()) return res;
-            else
-            {
-                if (res != null) res.Delete();
-                return null;
-            }
+            return resManager.CloseList();            
         }
+
         IPaintTo3DList IPaintTo3D.MakeList(List<IPaintTo3DList> sublists)
         {
-            StringBuilder name = new StringBuilder("_");
-            foreach (IPaintTo3DList sub in sublists)
-            {
-                if (sub != null)
-                {
-                    if (sub.Name != null) name.Append(sub.Name + "_");
-                }
-            }
-            OpenGlList res = new OpenGlList(name.ToString());
-            res.Open();
-            foreach (IPaintTo3DList sub in sublists)
-            {
-                if (sub != null)
-                {
-                    Gl.glCallList((sub as OpenGlList).ListNumber);
-                    res.hasContents = true;
-                }
-            }
-            res.Close();
-            (res as IPaintTo3DList).containedSubLists = sublists;
-            if (!res.hasContents) res.Delete();
-            CheckError();
-            //System.Diagnostics.Trace.WriteLine("make list: " + res.ListNumber.ToString());
-            return res;
+            return resManager.MakeList(sublists);
         }
         void IPaintTo3D.OpenPath()
         {
             throw new NotSupportedException("OpenGL does not support paths");
         }
-        void IPaintTo3D.ClosePath(System.Drawing.Color color)
+        void IPaintTo3D.ClosePath(Color color)
         {
             throw new NotSupportedException("OpenGL does not support paths");
         }
@@ -1853,7 +1482,7 @@ namespace CADability.Forms
         }
         void IPaintTo3D.FreeUnusedLists()
         {
-            OpenGlList.FreeLists();
+            //currentList.FreeLists();
         }
         void IPaintTo3D.UseZBuffer(bool use)
         {
@@ -1875,39 +1504,16 @@ namespace CADability.Forms
                 Gl.glFinish();
                 Gdi.SwapBuffersFast(deviceContext);
             }
-            catch (System.Exception e)
+            catch (Exception e)
             {   // stürzt manchmal auf Eckhards Rechner ab
-                if (e is ThreadAbortException) throw (e);
+                if (e is ThreadAbortException) throw;
             }
             CheckError();
             //Wgl.wglMakeCurrent(IntPtr.Zero, IntPtr.Zero);
             //CheckError();
         }
-        class MoveFacesBehindEdgesOffset : IDisposable
-        {
-            PaintToOpenGL paintTo;
-            public MoveFacesBehindEdgesOffset(PaintToOpenGL paintTo)
-            {
-                this.paintTo = paintTo;
-                Gl.glMatrixMode(Gl.GL_MODELVIEW);
-                Gl.glPushMatrix();
-                Gl.glTranslated(paintTo.precision * paintTo.projectionDirection.x, paintTo.precision * paintTo.projectionDirection.y, paintTo.precision * paintTo.projectionDirection.z);
-            }
-            #region IDisposable Members
-            void IDisposable.Dispose()
-            {
-                Gl.glMatrixMode(Gl.GL_MODELVIEW);
-                Gl.glPopMatrix();
-            }
-            #endregion
-        }
-        IDisposable IPaintTo3D.FacesBehindEdgesOffset
-        {
-            get
-            {
-                return new MoveFacesBehindEdgesOffset(this);
-            }
-        }
+
+        IDisposable IPaintTo3D.FacesBehindEdgesOffset => new MoveFacesBehindEdgesOffset(this);
 
         bool IPaintTo3D.IsBitmap => isBitmap;
 
@@ -1970,7 +1576,7 @@ namespace CADability.Forms
                 {
                     Gl.glMatrixMode(Gl.GL_MODELVIEW);
                     Gl.glLoadIdentity();
-                    Gl.glTranslated(precision * projectionDirection.x, precision * projectionDirection.y, precision * projectionDirection.z);
+                    Gl.glTranslated(precision * ProjectionDirection.x, precision * ProjectionDirection.y, precision * ProjectionDirection.z);
                 }
                 paintSurfaces = true;
                 paintEdges = false;
@@ -2059,142 +1665,6 @@ namespace CADability.Forms
                 Gl.glStencilOp(Gl.GL_KEEP, Gl.GL_KEEP, Gl.GL_KEEP);
                 Gl.glColorMask(true, true, true, true);
                 (this as IPaintTo3D).PopState();
-            }
-        }
-        #endregion
-    }
-
-    internal class OpenGlList : IPaintTo3DList
-    {
-        static List<int> toDelete = new List<int>();
-        static Dictionary<int, string> openLists = new Dictionary<int, string>();
-
-        public bool hasContents, isDeleted;
-        public OpenGlList(string name = null)
-        {
-            FreeLists();
-            ListNumber = Gl.glGenLists(1); // make a single list
-            if (name != null) this.name = name;
-            else this.name = "NoName_" + ListNumber.ToString();
-            openLists[ListNumber] = this.name;
-#if DEBUG
-            //System.Diagnostics.Trace.WriteLine("+++++ OpenGl List Nr.: " + ListNumber.ToString() + " (" + openLists.Count.ToString() + ") " + name);
-#endif
-            // Gl.glIsList()
-        }
-        ~OpenGlList()
-        {
-            lock (toDelete)
-            {
-                if (!isDeleted) toDelete.Add(ListNumber);
-            }
-        }
-        static public void FreeLists()
-        {
-            if (toDelete.Count > 0)
-            {
-                lock (toDelete)
-                {
-                    for (int i = 0; i < toDelete.Count; ++i)
-                    {
-#if DEBUG
-                        //System.Diagnostics.Trace.WriteLine("----- OpenGl List Nr.: " + toDelete[i].ToString());
-#endif
-                        openLists.Remove(toDelete[i]);
-                        try
-                        {
-                            Gl.glDeleteLists(toDelete[i], 1);
-                        }
-                        catch (Exception e)
-                        {
-                            if (e is System.Threading.ThreadAbortException) throw (e);
-                        }
-                    }
-                    toDelete.Clear();
-                }
-#if DEBUG
-                //System.Diagnostics.Trace.Write("still open: ");
-                foreach (KeyValuePair<int,string> l in openLists)
-                {
-                    //System.Diagnostics.Trace.Write(l.Value + ", ");
-                }
-                //System.Diagnostics.Trace.WriteLine(".");
-#endif
-            }
-        }
-        static public void FreeAllOpenLists()
-        {
-            foreach (KeyValuePair<int, string> l in openLists)
-            {
-                Gl.glDeleteLists(l.Key, 1);
-                int err = Gl.glGetError();
-#if DEBUG
-                if (err != 0) { }
-#endif
-            }
-            openLists.Clear();
-        }
-        public int ListNumber { get; }
-        public void SetHasContents()
-        {
-            hasContents = true;
-        }
-        public bool HasContents()
-        {
-            return hasContents;
-        }
-        public void Open()
-        {
-            Gl.glNewList(ListNumber, Gl.GL_COMPILE);
-        }
-        public void Close()
-        {
-            Gl.glEndList();
-        }
-        public void Delete()
-        {
-            openLists.Remove(ListNumber);
-#if DEBUG
-            //System.Diagnostics.Trace.WriteLine("Direct Deleting OpenGl List Nr.: " + ListNumber.ToString());
-#endif
-            isDeleted = true;
-            Gl.glDeleteLists(ListNumber, 1);
-        }
-        #region IPaintTo3DList Members
-        private string name;
-        string IPaintTo3DList.Name
-        {
-            get
-            {
-                return name;
-            }
-            set
-            {
-                name = value;
-            }
-        }
-        private List<IPaintTo3DList> keepAlive;
-        List<IPaintTo3DList> IPaintTo3DList.containedSubLists
-        {
-            // das Problem mit den SubLists ist so:
-            // Es werden meherere OpenGlList objekte generiert (z.B. Block)
-            // dann werden diese Listen durch "glCallList" in eine zusammengeführt. Aber gl
-            // merkt sich nur die Nummern. deshalb müssen diese Listen am Leben bleiben
-            // und dürfen nicht freigegeben werden. Hier ist der Platz sie zu erhalten.
-            set
-            {
-                keepAlive = value;
-            }
-        }
-        public void Dispose()
-        {
-            Delete();
-            if (keepAlive != null)
-            {
-                for (int i = 0; i < keepAlive.Count; i++)
-                {
-                    (keepAlive[i] as OpenGlList)?.Delete();
-                }
             }
         }
         #endregion

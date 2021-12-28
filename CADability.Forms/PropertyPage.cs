@@ -30,7 +30,7 @@ namespace CADability.Forms
         private string currentToolTip;
         private bool dragMiddlePosition = false;  // true, when the user moves the middle position (between label and value) with the pressed mouse button
         private Timer delay;
-		private PropertiesExplorer propertiesExplorer;
+        private PropertiesExplorer propertiesExplorer;
 
         public PropertyPage(string titleId, int iconId, PropertiesExplorer propExplorer)
         {
@@ -50,8 +50,8 @@ namespace CADability.Forms
             UpdateStyles();
             toolTip = new ToolTip();
             toolTip.InitialDelay = 500;
-			propertiesExplorer = propExplorer;
-		}
+            propertiesExplorer = propExplorer;
+        }
         private Rectangle ItemArea(int index)
         {
             return new Rectangle(0, index * lineHeight + AutoScrollPosition.Y, ClientSize.Width, lineHeight);
@@ -344,7 +344,7 @@ namespace CADability.Forms
                     else Cursor = Cursors.Arrow;
                     if (labelNeedsExtension[index])
                     {
-						propertiesExplorer.ShowLabelExtension(RectangleToScreen(IndentedItemArea(index)), entries[index].Label, entries[index]);
+                        propertiesExplorer.ShowLabelExtension(RectangleToScreen(IndentedItemArea(index)), entries[index].Label, entries[index]);
                         showLabelExtension = true;
                     }
                     break;
@@ -487,8 +487,8 @@ namespace CADability.Forms
         {
             if (propertiesExplorer.EntryWithListBox == entries[index])
             {
-				// is already shown
-				propertiesExplorer.HideListBox();
+                // is already shown
+                propertiesExplorer.HideListBox();
             }
             else
             {
@@ -503,7 +503,7 @@ namespace CADability.Forms
                         break;
                     }
                 }
-				propertiesExplorer.ShowListBox(RectangleToScreen(ValueArea(index)), dropDownList, selind, entries[index]);
+                propertiesExplorer.ShowListBox(RectangleToScreen(ValueArea(index)), dropDownList, selind, entries[index]);
             }
         }
         private void OpenOrCloseSubEntries(int index)
@@ -850,7 +850,7 @@ namespace CADability.Forms
             if (propertiesExplorer.EntryWithTextBox == entries[index]) return; // is already shown (maybe this is beeing called twice)
             entries[index].StartEdit(false);
             Rectangle labelRect = LabelArea(index);
-			propertiesExplorer.ShowTextBox(RectangleToScreen(labelRect), entries[index].Label, entries[index], PointToScreen(new Point(labelRect.Right, labelRect.Top)));
+            propertiesExplorer.ShowTextBox(RectangleToScreen(labelRect), entries[index].Label, entries[index], PointToScreen(new Point(labelRect.Right, labelRect.Top)));
         }
 
         #region quick adaption to IPropertyTreeView, remove later
@@ -875,10 +875,10 @@ namespace CADability.Forms
 
         protected override void Dispose(bool disposing)
         {
-            for (int i = 0; i < entries.Length; i++)
-            {
-                entries[i].Removed(this);
-            }
+            if (entries != null)
+                for (int i = 0; i < entries.Length; i++)
+                    entries[i].Removed(this);
+
             base.Dispose(disposing);
         }
     }
