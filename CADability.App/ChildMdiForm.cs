@@ -26,5 +26,12 @@ namespace CADability.App
             Project newProj = Project.CreateSimpleProject();            
             cadControl1.CadFrame.Project = newProj; 
         }
+
+        private void button1_Click(object sender, EventArgs e)
+        {
+            if (this.RightToLeft == System.Windows.Forms.RightToLeft.Yes)
+                this.RightToLeft = System.Windows.Forms.RightToLeft.No;
+            else this.RightToLeft = System.Windows.Forms.RightToLeft.Yes;
+        }
     }
 }

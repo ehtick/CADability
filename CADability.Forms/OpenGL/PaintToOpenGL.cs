@@ -20,8 +20,7 @@ namespace CADability.Forms.OpenGL
     {
         #region IPaintTo3D data
         public int debugNumTriangles = 0;
-        public Thread MainThread = null;
-        public List<IntPtr> ContextsToDelete = new List<IntPtr>();
+        public Thread MainThread = null;        
         bool paintSurfaces;
         bool paintEdges;
         bool paintSurfaceEdges;
@@ -331,22 +330,30 @@ namespace CADability.Forms.OpenGL
         }
 
         private void ControlOwner_FormClosed(object sender, FormClosedEventArgs e)
-        {
-            if (resManager != null)
-            {
-                resManager.Dispose();
-                resManager = null;
-            }
+        {            
+            //if (resManager != null)
+            //{
+            //    resManager.Dispose();
+            //    resManager = null;
+            //}
         }
 
         internal void Disconnect(Control ctrl)
         {
             if (ctrl != null)
             {
+                //TODO: Is this really needed???
                 if (renderContext != IntPtr.Zero && renderContext != MainRenderContext)
                 {
                     renderContext = IntPtr.Zero;
                 }
+            }
+            //If the project is closed and a new one is set Cadability will only call Disconnect
+            //but the form/control is not closed. That's why ControlOwner_FormClosed will not be called.
+            if (resManager != null)
+            {
+                resManager.Dispose();
+                resManager = null;
             }
         }
 
@@ -359,9 +366,9 @@ namespace CADability.Forms.OpenGL
         }
         void IPaintTo3D.Dispose()
         {
+            //TODO: Is this really needed???
             if (renderContext != IntPtr.Zero && renderContext != MainRenderContext)
             {
-                ContextsToDelete.Add(renderContext);
                 renderContext = IntPtr.Zero;
             }
             CheckError();

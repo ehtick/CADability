@@ -140,6 +140,13 @@ namespace CADability.Forms.OpenGL
             if (activeControlDC != IntPtr.Zero)
                 throw new PaintToOpenGLException("ConnectToControl: Already connected to control!");
 
+            ConnectToHandle(ctrl);
+
+            return activeControlDC;
+        }
+
+        private void ConnectToHandle(System.Windows.Forms.Control ctrl)
+        {
             //Retrieve device context
             IntPtr deviceContext = User.GetDC(ctrl.Handle);
 
@@ -150,8 +157,21 @@ namespace CADability.Forms.OpenGL
             //Save as active Control to be able to release it later
             activeControlDC = deviceContext;
             activeControlHandle = ctrl.Handle;
+            ctrl.HandleDestroyed += Ctrl_HandleDestroyed;
+            ctrl.HandleCreated += Ctrl_HandleCreated;
+        }
 
-            return deviceContext;
+        private void Ctrl_HandleCreated(object sender, EventArgs e)
+        {
+            throw new NotImplementedException();
+            //Disconnect from old handle connect to new handle
+        }
+
+        private void Ctrl_HandleDestroyed(object sender, EventArgs e)
+        {
+            ((System.Windows.Forms.Control)sender).HandleCreated -= Ctrl_HandleCreated;
+            ((System.Windows.Forms.Control)sender).HandleDestroyed -= Ctrl_HandleDestroyed;
+            DisconnectFromControl();
         }
 
         public void DisconnectFromControl()
@@ -163,7 +183,14 @@ namespace CADability.Forms.OpenGL
                 throw new PaintToOpenGLException("No active Control handle set");
 
             if (!User.ReleaseDC(activeControlHandle, activeControlDC))
-                throw new PaintToOpenGLException("Error while releasing device context");
+            {
+                //ERROR_INVALID_MENU_HANDLE 	0x579
+                int win32err = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
+                throw new PaintToOpenGLException($"Error while releasing device context: 0x{win32err.ToString("X")}");
+            }
+
+            activeControlDC = IntPtr.Zero;
+            activeControlHandle = IntPtr.Zero;
         }
 
 
@@ -221,10 +248,7 @@ namespace CADability.Forms.OpenGL
                         }
                     }
 
-                    //3. Release DC
-                    DisconnectFromControl();
-
-                    //4. Delete all open Contexts
+                    //3. Delete all open Contexts
                     if (activeRenderContexts != null)
                     {
                         for (int i = activeRenderContexts.Count - 1; i >= 0; i--)

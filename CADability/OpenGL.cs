@@ -51913,8 +51913,10 @@ namespace CADability
     {
         private const CallingConvention CALLING_CONVENTION = CallingConvention.StdCall;
         private const string USER_NATIVE_LIBRARY = "user32.dll";
-        [DllImport(USER_NATIVE_LIBRARY, CallingConvention = CALLING_CONVENTION), SuppressUnmanagedCodeSecurity]
+
+        [DllImport(USER_NATIVE_LIBRARY, CallingConvention = CALLING_CONVENTION, SetLastError = true), SuppressUnmanagedCodeSecurity]
         public static extern bool ReleaseDC(IntPtr windowHandle, IntPtr deviceContext);
+
         [DllImport(USER_NATIVE_LIBRARY, CallingConvention = CALLING_CONVENTION, SetLastError = true), SuppressUnmanagedCodeSecurity]
         public static extern IntPtr GetDC(IntPtr windowHandle);
     }
