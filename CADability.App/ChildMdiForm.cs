@@ -16,10 +16,13 @@ namespace CADability.App
         public ChildMdiForm()
         {
             InitializeComponent();
+            cadControl1.CreateMainMenu = true;
         }
 
         private void ChildMdiForm_Load(object sender, EventArgs e)
-        {            
+        {
+            
+            
             Project newProj = Project.CreateSimpleProject();            
             cadControl1.CadFrame.Project = newProj; 
         }

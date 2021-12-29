@@ -16,8 +16,6 @@ namespace CADability.Forms.OpenGL
         // Context management
         List<IntPtr> activeRenderContexts = new List<IntPtr>();
 
-        IntPtr mainRenderContext;
-
         //Control device context and handle management
         IntPtr activeControlDC;
         IntPtr activeControlHandle;
@@ -180,10 +178,6 @@ namespace CADability.Forms.OpenGL
             }
 
             System.Diagnostics.Debug.WriteLine("RenderContext created: " + renderContext.ToString());
-
-            //First render context that is created is always the main render context
-            if (activeRenderContexts.Count == 0)
-                mainRenderContext = renderContext;
 
             activeRenderContexts.Add(renderContext);
             return renderContext;

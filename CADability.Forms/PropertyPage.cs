@@ -385,6 +385,14 @@ namespace CADability.Forms
         }
         private void Delay_Tick(object sender, EventArgs e)
         {
+            if (this.IsDisposed)
+            {
+                delay.Stop();
+                delay.Tick -= Delay_Tick;
+                delay = null;
+                return;
+            }
+
             object[] oa = (sender as Timer).Tag as object[];
             string toDisplay = oa[0] as string;
             Point mp = (Point)oa[1];

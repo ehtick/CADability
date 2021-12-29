@@ -41,7 +41,6 @@ namespace CADability.Forms.OpenGL
         Color backgroundColor; // Die Hintergrundfarbe um sicherzustellen, dass nicht mit dieser farbe gezeichnet wird
         Color selectColor;
 
-        OpenGlList currentList;
         IntPtr deviceContext = IntPtr.Zero, renderContext = IntPtr.Zero;
         byte accumBits = 0, colorBits = 32, depthBits = 16;
         
@@ -113,8 +112,7 @@ namespace CADability.Forms.OpenGL
             this.precision = precision;
             paintSurfaces = true;
             paintEdges = true;
-            paintSurfaceEdges = true;
-            currentList = null;
+            paintSurfaceEdges = true;            
             selectColor = Color.Yellow;
             lineWidthFactor = 10.0;
         }
@@ -385,19 +383,10 @@ namespace CADability.Forms.OpenGL
         }
         void IPaintTo3D.MakeCurrent()
         {
-            //if (!Wgl.wglMakeCurrent(deviceContext, renderContext))
-            //{
-            //    throw new PaintToOpenGLException("MakeCurrentContext: Unable to active this control's OpenGL rendering context");
-            //}
-            if (Wgl.wglMakeCurrent(deviceContext, renderContext))
-            {
-                // System.Diagnostics.Trace.WriteLine("MakeCurrent: " + deviceContext.ToInt32());
-            }
-            else
-            {
-                //System.Diagnostics.Trace.WriteLine("MakeCurrent failed: " + deviceContext.ToInt32());
-            }
-            // CheckError(); ist ja kein OpenGl Befehl
+            if (!Wgl.wglMakeCurrent(deviceContext, renderContext))            
+                throw new PaintToOpenGLException("MakeCurrentContext: Unable to active this control's OpenGL rendering context");            
+
+            CheckError();
         }
         void IPaintTo3D.Resize(int width, int height)
         {
@@ -620,7 +609,7 @@ namespace CADability.Forms.OpenGL
         }
         void IPaintTo3D.Polyline(GeoPoint[] points)
         {
-            if (currentList != null) currentList.SetHasContents();
+            if (resManager.CurrentList != null) resManager.CurrentList.SetHasContents();
             Gl.glDisable(Gl.GL_LIGHTING);
             Gl.glBegin(Gl.GL_LINE_STRIP);
             for (int i = 0; i < points.Length; ++i)
@@ -632,7 +621,7 @@ namespace CADability.Forms.OpenGL
         }
         void IPaintTo3D.FilledPolyline(GeoPoint[] points)
         {
-            if (currentList != null) currentList.SetHasContents();
+            if (resManager.CurrentList != null) resManager.CurrentList.SetHasContents();
             Gl.glEnable(Gl.GL_LIGHTING);
             Gl.glBegin(Gl.GL_POLYGON);
             for (int i = 0; i < points.Length; ++i)
@@ -646,7 +635,7 @@ namespace CADability.Forms.OpenGL
         {
             if (pointSymbol == PointSymbol.Dot)
             {
-                if (currentList != null) currentList.SetHasContents();
+                if (resManager.CurrentList != null) resManager.CurrentList.SetHasContents();
                 Gl.glDisable(Gl.GL_LIGHTING);
                 Gl.glBegin(Gl.GL_POINTS);
                 for (int i = 0; i < points.Length; ++i)
@@ -721,7 +710,7 @@ namespace CADability.Forms.OpenGL
         void IPaintTo3D.Triangle(GeoPoint[] vertex, GeoVector[] normals, int[] indextriples)
         {
             debugNumTriangles += indextriples.Length / 3;
-            if (currentList != null) currentList.SetHasContents();
+            if (resManager.CurrentList != null) resManager.CurrentList.SetHasContents();
             Gl.glEnable(Gl.GL_LIGHTING);
             float[] mat_ambient = { 0.5f, 0.5f, 0.5f, 1.0f };
             float[] mat_specular = { 1.0f, 1.0f, 1.0f, 1.0f };
@@ -771,7 +760,7 @@ namespace CADability.Forms.OpenGL
         }
         void IPaintTo3D.PrepareIcon(Bitmap icon)
         {   // Für ein Icon wird eine kleine DisplayList gemacht, in der großen stürzt es oft ab
-            if (currentList != null) throw new ApplicationException("PrepareIcon called with display list open");
+            if (resManager.CurrentList != null) throw new ApplicationException("PrepareIcon called with display list open");
             if (!icons.ContainsKey(icon))
             {
                 int r = (icon.Width + 7) / 8; // Anzahl der Bytes pro Zeile
@@ -792,7 +781,7 @@ namespace CADability.Forms.OpenGL
                     }
                 }
                 (this as IPaintTo3D).OpenList("icon"); // zwischen open und close keine GarbageCollection sonst stimmt die Adresse von oglbitmap nicht mehr
-                currentList.hasContents = true;
+                resManager.CurrentList.hasContents = true;
                 Gl.glRasterPos3d(0.0, 0.0, 0.0);
                 Gl.glPixelStorei(Gl.GL_PACK_SWAP_BYTES, 0);
                 Gl.glPixelStorei(Gl.GL_PACK_LSB_FIRST, 0);
@@ -814,7 +803,7 @@ namespace CADability.Forms.OpenGL
         }
         void IPaintTo3D.PrepareBitmap(Bitmap bitmap, int xoffset, int yoffset)
         {
-            if (currentList != null) throw new ApplicationException("PrepareBitmap called with display list open");
+            if (resManager.CurrentList != null) throw new ApplicationException("PrepareBitmap called with display list open");
             if (!bitmaps.ContainsKey(bitmap))
             {
                 int[] pixels = new int[bitmap.Width * bitmap.Height];
@@ -828,7 +817,7 @@ namespace CADability.Forms.OpenGL
                     }
                 }
                 (this as IPaintTo3D).OpenList("bitmap"); // zwischen open und close keine GarbageCollection sonst stimmt die Adresse von oglbitmap nicht mehr
-                currentList.hasContents = true;
+                resManager.CurrentList.hasContents = true;
                 Gl.glRasterPos3d(0.0, 0.0, 0.0);
                 // ich finde keine Möglichkeit die Position auf z.B. die Mitte oder einen beliebigen Punkt des
                 // Bitmaps zu setzen. Außer: In Notes zu glBitmap steht:
@@ -987,7 +976,7 @@ namespace CADability.Forms.OpenGL
             uint texName;
             if (textures.TryGetValue(bitmap, out texName))
             {
-                if (currentList != null) currentList.SetHasContents();
+                if (resManager.CurrentList != null) resManager.CurrentList.SetHasContents();
                 // Gl.glEnable(Gl.GL_LIGHTING);
                 Gl.glEnable(Gl.GL_TEXTURE_2D);
                 Gl.glTexEnvf(Gl.GL_TEXTURE_ENV, Gl.GL_TEXTURE_ENV_MODE, Gl.GL_REPLACE);
@@ -1016,7 +1005,7 @@ namespace CADability.Forms.OpenGL
         }
         void IPaintTo3D.Text(GeoVector lineDirection, GeoVector glyphDirection, GeoPoint location, string fontName, string textString, FontStyle fontStyle, Text.AlignMode alignment, Text.LineAlignMode lineAlignment)
         {
-            if (currentList != null) currentList.SetHasContents();
+            if (resManager.CurrentList != null) resManager.CurrentList.SetHasContents();
             if (textString.Length == 0) return;
             GeoVector normal = lineDirection ^ glyphDirection;
             FontDisplayList fdl = resManager.GetFontDisplayList(fontName, deviceContext);
@@ -1196,7 +1185,7 @@ namespace CADability.Forms.OpenGL
         }
         void IPaintTo3D.DisplayIcon(GeoPoint p, Bitmap icon)
         {
-            if (currentList != null) currentList.SetHasContents();
+            if (resManager.CurrentList != null) resManager.CurrentList.SetHasContents();
             if (icons.ContainsKey(icon))
             {
                 Gl.glMatrixMode(Gl.GL_MODELVIEW); // ModelView Matrix ist und bleibt immer Identität (nein! bei BlockRef nicht!)
@@ -1232,7 +1221,7 @@ namespace CADability.Forms.OpenGL
         }
         void IPaintTo3D.DisplayBitmap(GeoPoint p, Bitmap bitmap)
         {
-            if (currentList != null) currentList.SetHasContents();
+            if (resManager.CurrentList != null) resManager.CurrentList.SetHasContents();
             IPaintTo3DList list;
             if (bitmaps.TryGetValue(bitmap, out list))
             {
@@ -1272,7 +1261,7 @@ namespace CADability.Forms.OpenGL
         void IPaintTo3D.List(IPaintTo3DList paintThisList)
         {
             if (paintThisList == null) return;
-            if (currentList != null) currentList.SetHasContents();
+            if (resManager.CurrentList != null) resManager.CurrentList.SetHasContents();
             if ((paintThisList as OpenGlList).ListNumber != 0) Gl.glCallList((paintThisList as OpenGlList).ListNumber);
             //System.Diagnostics.Trace.WriteLine("display list: " + (paintThisList as OpenGlList).ListNumber.ToString());
             CheckError();
@@ -1464,6 +1453,9 @@ namespace CADability.Forms.OpenGL
         {
             return resManager.MakeList(sublists);
         }
+
+
+
         void IPaintTo3D.OpenPath()
         {
             throw new NotSupportedException("OpenGL does not support paths");
