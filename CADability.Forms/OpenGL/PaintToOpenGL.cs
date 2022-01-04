@@ -40,14 +40,10 @@ namespace CADability.Forms.OpenGL
         Color backgroundColor; // Die Hintergrundfarbe um sicherzustellen, dass nicht mit dieser farbe gezeichnet wird
         Color selectColor;
 
-        IntPtr deviceContext = IntPtr.Zero, renderContext = IntPtr.Zero;
+        IntPtr renderContext = IntPtr.Zero;
         byte accumBits = 0, colorBits = 32, depthBits = 16;
 
-        IntPtr MainRenderContext = IntPtr.Zero;
-        IntPtr LastRenderContext = IntPtr.Zero;
-
         OpenGLResourceManager resManager = new OpenGLResourceManager();
-
 
         public GeoVector ProjectionDirection { get; private set; }
 
@@ -121,30 +117,12 @@ namespace CADability.Forms.OpenGL
             if (deviceContext == IntPtr.Zero)
                 throw new PaintToOpenGLException("Device Context is Zero");
 
-            this.deviceContext = deviceContext;
             this.isBitmap = toBitmap;
 
             SetupPixelFormat(deviceContext, toBitmap);
 
             //Create rendering context
-            renderContext = resManager.CreateContext(deviceContext);
-
-            if (!toBitmap)
-            {
-                if (MainRenderContext == IntPtr.Zero)
-                {
-                    MainRenderContext = renderContext;
-                    LastRenderContext = renderContext;
-                }
-                else
-                {
-                    bool ok = Wgl.wglShareLists(LastRenderContext, renderContext);
-                    System.Diagnostics.Debug.Write($"Sharing Lists between: 0x{LastRenderContext.ToString("X")} & 0x{renderContext.ToString("X")}");
-                    LastRenderContext = renderContext;
-                    if (!ok)
-                        MainRenderContext = renderContext;
-                }
-            }
+            renderContext = resManager.CreateContext(deviceContext, toBitmap);
 
             clientwidth = width;
             clientheight = height;
@@ -222,14 +200,8 @@ namespace CADability.Forms.OpenGL
             if (other == null) return false;
             return renderContext == other.renderContext;
         }
-
         #endregion
         #region IPaintTo3D implementation
-        Dictionary<Bitmap, IPaintTo3DList> icons = new Dictionary<Bitmap, IPaintTo3DList>();
-        Dictionary<Bitmap, IPaintTo3DList> bitmaps = new Dictionary<Bitmap, IPaintTo3DList>();
-        Dictionary<Bitmap, uint> textures = new Dictionary<Bitmap, uint>();
-
-
         bool IPaintTo3D.PaintSurfaces
         {
             get { return paintSurfaces; }
@@ -321,15 +293,7 @@ namespace CADability.Forms.OpenGL
 
         internal void Disconnect(Control ctrl)
         {
-            if (ctrl != null)
-            {
-                //TODO: Is this really needed???
-                if (renderContext != IntPtr.Zero && renderContext != MainRenderContext)
-                {
-                    renderContext = IntPtr.Zero;
-                }
-            }
-            //If the project is closed and a new one is set Cadability will only call Disconnect
+            //If the project is closed and a new project is set Cadability will only call Disconnect
             //but the form/control is not closed. That's why ControlOwner_FormClosed will not be called.
             if (resManager != null)
             {
@@ -348,13 +312,9 @@ namespace CADability.Forms.OpenGL
 
         void IPaintTo3D.Dispose()
         {
-            //TODO: Is this really needed???
-            if (renderContext != IntPtr.Zero && renderContext != MainRenderContext)
-            {
-                renderContext = IntPtr.Zero;
-            }
-            CheckError();
+            
         }
+
         void IPaintTo3D.PushState()
         {
             State s;
@@ -372,8 +332,10 @@ namespace CADability.Forms.OpenGL
         }
         void IPaintTo3D.MakeCurrent()
         {
-            if (!Wgl.wglMakeCurrent(deviceContext, renderContext))
-                throw new PaintToOpenGLException("MakeCurrentContext: Unable to active this control's OpenGL rendering context");
+            //TODO: Check if the handle to the control is still connected
+            //Otherwise make current could fail.
+
+            resManager.MakeCurrent();
 
             //Check Error will return an error until MakeCurrent is called for the first time.
             CheckError();
@@ -750,8 +712,10 @@ namespace CADability.Forms.OpenGL
         }
         void IPaintTo3D.PrepareIcon(Bitmap icon)
         {   // Für ein Icon wird eine kleine DisplayList gemacht, in der großen stürzt es oft ab
-            if (resManager.CurrentList != null) throw new ApplicationException("PrepareIcon called with display list open");
-            if (!icons.ContainsKey(icon))
+            if (resManager.CurrentList != null) 
+                throw new ApplicationException("PrepareIcon called with display list open");
+
+            if (!resManager.IconsCache.ContainsKey(icon))
             {
                 int r = (icon.Width + 7) / 8; // Anzahl der Bytes pro Zeile
                 int n = r * icon.Height; // Anzahl der Bytes
@@ -770,6 +734,7 @@ namespace CADability.Forms.OpenGL
                         }
                     }
                 }
+
                 (this as IPaintTo3D).OpenList("icon"); // zwischen open und close keine GarbageCollection sonst stimmt die Adresse von oglbitmap nicht mehr
                 resManager.CurrentList.hasContents = true;
                 Gl.glRasterPos3d(0.0, 0.0, 0.0);
@@ -788,13 +753,13 @@ namespace CADability.Forms.OpenGL
                 Gl.glBitmap(icon.Width, icon.Height, icon.Width / 2, icon.Height / 2, 0.0f, 0.0f, oglbitmap);
                 // vermutlich merkt sich Gl.glBitmap nur die Adresse und CloseList holt sich dann den Inhalt
                 // dazwischen darf keine GarbageCollection laufen, was hier vermutlich mit stackalloc ausgeschlossen ist
-                icons[icon] = (this as IPaintTo3D).CloseList();
+                resManager.IconsCache[icon] = (this as IPaintTo3D).CloseList();
             }
         }
         void IPaintTo3D.PrepareBitmap(Bitmap bitmap, int xoffset, int yoffset)
         {
             if (resManager.CurrentList != null) throw new ApplicationException("PrepareBitmap called with display list open");
-            if (!bitmaps.ContainsKey(bitmap))
+            if (!resManager.BitmapsCache.ContainsKey(bitmap))
             {
                 int[] pixels = new int[bitmap.Width * bitmap.Height];
                 for (int i = 0; i < bitmap.Height; ++i)
@@ -830,7 +795,7 @@ namespace CADability.Forms.OpenGL
                 Gl.glPixelStorei(Gl.GL_UNPACK_ALIGNMENT, 4);
                 Gl.glDrawPixels(bitmap.Width, bitmap.Height, Gl.GL_RGBA, Gl.GL_UNSIGNED_INT_8_8_8_8, pixels);
                 // Gl.glDrawPixels(bitmap.Width, bitmap.Height, Gl.GL_RGB, Gl.GL_UNSIGNED_INT, pixels);
-                bitmaps[bitmap] = (this as IPaintTo3D).CloseList();
+                resManager.BitmapsCache[bitmap] = (this as IPaintTo3D).CloseList();
                 int maxTextureSize;
                 Gl.glGetIntegerv(Gl.GL_MAX_TEXTURE_SIZE, out maxTextureSize);
             }
@@ -839,7 +804,7 @@ namespace CADability.Forms.OpenGL
         {
             // siehe http://www.opengl.org/resources/features/fontsurvey/ für andere Font Methoden
             // dieses hier ist zu Resourcenträchtig
-            FontDisplayList fdl = resManager.GetFontDisplayList(fontName, deviceContext);
+            FontDisplayList fdl = resManager.GetFontDisplayList(fontName, resManager.ActiveControlDC);
             for (int i = 0; i < textString.Length; ++i)
             {
                 fdl.AssertCharacter(textString[i]);
@@ -904,7 +869,7 @@ namespace CADability.Forms.OpenGL
         void IPaintTo3D.PrepareBitmap(Bitmap bitmap)
         {   // Mechanismus zum Entfernen aus dem Dictionary und vor allem aus OpenGL fehlt noch.
             // man bräuchte eine Art OnDispose vom Bitmap, aber das gibt es nicht...
-            if (!textures.ContainsKey(bitmap))
+            if (!resManager.TexturesCache.ContainsKey(bitmap))
             {
                 Gl.glPixelStorei(Gl.GL_UNPACK_ALIGNMENT, 1);
                 Gl.glPixelStorei(Gl.GL_PACK_ALIGNMENT, 1);
@@ -957,14 +922,14 @@ namespace CADability.Forms.OpenGL
                     }
                     Gl.glTexImage2D(Gl.GL_TEXTURE_2D, 0, Gl.GL_RGB, bitmap.Width, bitmap.Height, 0, Gl.GL_RGB, Gl.GL_UNSIGNED_BYTE, pixels);
                 }
-                textures[bitmap] = texName;
+                resManager.TexturesCache[bitmap] = texName;
                 CheckError();
             }
         }
         void IPaintTo3D.RectangularBitmap(Bitmap bitmap, GeoPoint location, GeoVector directionWidth, GeoVector directionHeight)
         {
             uint texName;
-            if (textures.TryGetValue(bitmap, out texName))
+            if (resManager.TexturesCache.TryGetValue(bitmap, out texName))
             {
                 if (resManager.CurrentList != null) resManager.CurrentList.SetHasContents();
                 // Gl.glEnable(Gl.GL_LIGHTING);
@@ -998,7 +963,7 @@ namespace CADability.Forms.OpenGL
             if (resManager.CurrentList != null) resManager.CurrentList.SetHasContents();
             if (textString.Length == 0) return;
             GeoVector normal = lineDirection ^ glyphDirection;
-            FontDisplayList fdl = resManager.GetFontDisplayList(fontName, deviceContext);
+            FontDisplayList fdl = resManager.GetFontDisplayList(fontName, resManager.ActiveControlDC);
             if (alignment != GeoObject.Text.AlignMode.Baseline || lineAlignment != GeoObject.Text.LineAlignMode.Left)
             {
                 // hier location modifizieren gemäß alignment
@@ -1176,7 +1141,7 @@ namespace CADability.Forms.OpenGL
         void IPaintTo3D.DisplayIcon(GeoPoint p, Bitmap icon)
         {
             if (resManager.CurrentList != null) resManager.CurrentList.SetHasContents();
-            if (icons.ContainsKey(icon))
+            if (resManager.IconsCache.ContainsKey(icon))
             {
                 Gl.glMatrixMode(Gl.GL_MODELVIEW); // ModelView Matrix ist und bleibt immer Identität (nein! bei BlockRef nicht!)
                 Gl.glPushMatrix();
@@ -1204,7 +1169,7 @@ namespace CADability.Forms.OpenGL
                 // Gl.glLoadMatrixd(pmat); // damit ging der Punkt über das Clipboard nicht, denn das zu verschiebende Objekt ist ein BlockRef
                 // und der verändert die Matrix, es war also nicht die Eiheitsmatrix, wie oben geschrieben
                 Gl.glMultMatrixd(pmat);
-                Gl.glCallList((icons[icon] as OpenGlList).ListNumber);
+                Gl.glCallList((resManager.IconsCache[icon] as OpenGlList).ListNumber);
                 Gl.glPopMatrix();
             }
             CheckError();
@@ -1213,7 +1178,7 @@ namespace CADability.Forms.OpenGL
         {
             if (resManager.CurrentList != null) resManager.CurrentList.SetHasContents();
             IPaintTo3DList list;
-            if (bitmaps.TryGetValue(bitmap, out list))
+            if (resManager.BitmapsCache.TryGetValue(bitmap, out list))
             {
                 Gl.glMatrixMode(Gl.GL_MODELVIEW); // ModelView Matrix ist und bleibt immer Identität
                 Gl.glPushMatrix();
@@ -1480,15 +1445,13 @@ namespace CADability.Forms.OpenGL
             {
                 Gl.glFlush();
                 Gl.glFinish();
-                Gdi.SwapBuffersFast(deviceContext);
+                Gdi.SwapBuffersFast(resManager.ActiveControlDC);
             }
             catch (Exception e)
             {   // stürzt manchmal auf Eckhards Rechner ab
                 if (e is ThreadAbortException) throw;
             }
             CheckError();
-            //Wgl.wglMakeCurrent(IntPtr.Zero, IntPtr.Zero);
-            //CheckError();
         }
 
         IDisposable IPaintTo3D.FacesBehindEdgesOffset => new MoveFacesBehindEdgesOffset(this);

@@ -129,6 +129,8 @@ namespace CADability.Forms
 
         protected override void OnHandleCreated(EventArgs e)
         {
+            //FIXME: Doesn't seem to be the right place to this!
+            //The handle could be recreated and the event could be hooked up twice.
             setupParentForm();
 
             // open an existing Project or create a new one
