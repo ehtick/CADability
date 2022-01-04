@@ -341,11 +341,6 @@ namespace CADability
 
         }
 
-        void IPaintTo3D.FreeUnusedLists()
-        {
-
-        }
-
         void IPaintTo3D.UseZBuffer(bool use)
         {
 

@@ -20,7 +20,7 @@ namespace CADability.Forms.OpenGL
     {
         #region IPaintTo3D data
         public int debugNumTriangles = 0;
-        public Thread MainThread = null;        
+        public Thread MainThread = null;
         bool paintSurfaces;
         bool paintEdges;
         bool paintSurfaceEdges;
@@ -42,7 +42,7 @@ namespace CADability.Forms.OpenGL
 
         IntPtr deviceContext = IntPtr.Zero, renderContext = IntPtr.Zero;
         byte accumBits = 0, colorBits = 32, depthBits = 16;
-        
+
         IntPtr MainRenderContext = IntPtr.Zero;
         IntPtr LastRenderContext = IntPtr.Zero;
 
@@ -102,16 +102,11 @@ namespace CADability.Forms.OpenGL
 
         public PaintToOpenGL(double precision = 1e-6)
         {
-            try
-            {   // hier gab es noch keinen OpenGL Aufruf, einmal CheckError nullt diesen
-                CheckError(true);
-            }
-            catch { }
             if (MainThread == null) MainThread = Thread.CurrentThread;
             this.precision = precision;
             paintSurfaces = true;
             paintEdges = true;
-            paintSurfaceEdges = true;            
+            paintSurfaceEdges = true;
             selectColor = Color.Yellow;
             lineWidthFactor = 10.0;
         }
@@ -144,6 +139,7 @@ namespace CADability.Forms.OpenGL
                 else
                 {
                     bool ok = Wgl.wglShareLists(LastRenderContext, renderContext);
+                    System.Diagnostics.Debug.Write($"Sharing Lists between: 0x{LastRenderContext.ToString("X")} & 0x{renderContext.ToString("X")}");
                     LastRenderContext = renderContext;
                     if (!ok)
                         MainRenderContext = renderContext;
@@ -203,9 +199,8 @@ namespace CADability.Forms.OpenGL
             pixelFormat.dwVisibleMask = 0;
             pixelFormat.dwDamageMask = 0;
 
-            //Set pixel format
-            int selectedFormat = Gdi.ChoosePixelFormat(deviceContext, ref pixelFormat);
-
+            //Set pixel format            
+            int selectedFormat = Gdi.ChoosePixelFormat(deviceContext, ref pixelFormat);            
             //Make sure the requested pixel format is available
             if (selectedFormat == 0)
                 throw new PaintToOpenGLException("SetupPixelFormat: Unable to find a suitable pixel format");
@@ -318,24 +313,10 @@ namespace CADability.Forms.OpenGL
             if (controlOwner is null)
                 throw new PaintToOpenGLException("Unable to find owner of control");
 
-            //Attach to the FormClosed Event which will occure if the owner window is destroyed
-            //and OpenGL needs to be shut down for this window.
-            //This event should be always synchronous as it is called from the UI Thread - unlike Disposed
-            controlOwner.FormClosed += ControlOwner_FormClosed;
-
             Gl.glPixelStorei(Gl.GL_UNPACK_ALIGNMENT, 1);
             Gl.glPixelStorei(Gl.GL_PACK_ALIGNMENT, 1);
 
             CheckError();
-        }
-
-        private void ControlOwner_FormClosed(object sender, FormClosedEventArgs e)
-        {            
-            //if (resManager != null)
-            //{
-            //    resManager.Dispose();
-            //    resManager = null;
-            //}
         }
 
         internal void Disconnect(Control ctrl)
@@ -364,6 +345,7 @@ namespace CADability.Forms.OpenGL
 
             throw new PaintToOpenGLException("Error in OpenGl (" + error.ToString("X") + ")");
         }
+
         void IPaintTo3D.Dispose()
         {
             //TODO: Is this really needed???
@@ -390,9 +372,10 @@ namespace CADability.Forms.OpenGL
         }
         void IPaintTo3D.MakeCurrent()
         {
-            if (!Wgl.wglMakeCurrent(deviceContext, renderContext))            
-                throw new PaintToOpenGLException("MakeCurrentContext: Unable to active this control's OpenGL rendering context");            
+            if (!Wgl.wglMakeCurrent(deviceContext, renderContext))
+                throw new PaintToOpenGLException("MakeCurrentContext: Unable to active this control's OpenGL rendering context");
 
+            //Check Error will return an error until MakeCurrent is called for the first time.
             CheckError();
         }
         void IPaintTo3D.Resize(int width, int height)
@@ -1443,17 +1426,17 @@ namespace CADability.Forms.OpenGL
         //    Gl.glEnable(Gl.GL_DEPTH_TEST);
         //    CheckError();
         //}
-        List<OpenGlList> listMaster = new List<OpenGlList>();
+        
 
 
         void IPaintTo3D.OpenList(string name)
         {
-            resManager.OpenList(name);            
+            resManager.OpenList(name);
         }
 
         IPaintTo3DList IPaintTo3D.CloseList()
         {
-            return resManager.CloseList();            
+            return resManager.CloseList();
         }
 
         IPaintTo3DList IPaintTo3D.MakeList(List<IPaintTo3DList> sublists)
@@ -1478,10 +1461,6 @@ namespace CADability.Forms.OpenGL
         void IPaintTo3D.Arc(GeoPoint center, GeoVector majorAxis, GeoVector minorAxis, double startParameter, double sweepParameter)
         {
             throw new NotSupportedException("OpenGL does not support arcs");
-        }
-        void IPaintTo3D.FreeUnusedLists()
-        {
-            //currentList.FreeLists();
         }
         void IPaintTo3D.UseZBuffer(bool use)
         {

@@ -337,11 +337,7 @@ namespace CADability
         /// <param name="minorAxis">Minor axis, also defines the radius. When painting a circular arc, minorAxis and majorAxis must have the same length</param>
         /// <param name="startParameter">Radian value of the starting position (0 is direction of majorAxis)</param>
         /// <param name="sweepParameter">Radian for the sweep angle</param>
-        void Arc(GeoPoint center, GeoVector majorAxis, GeoVector minorAxis, double startParameter, double sweepParameter);
-        /// <summary>
-        /// Only used internally, no need to call.
-        /// </summary>
-        void FreeUnusedLists();
+        void Arc(GeoPoint center, GeoVector majorAxis, GeoVector minorAxis, double startParameter, double sweepParameter);        
         /// <summary>
         /// Usually set to true, switch off to paint coordinate axis etc.
         /// </summary>

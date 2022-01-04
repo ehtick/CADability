@@ -7,15 +7,19 @@ namespace CADability.Forms.OpenGL
 {
     internal class OpenGlList : IPaintTo3DList
     {
+        public static int listCounter = 0;
+
         public bool hasContents, isDeleted;
         public OpenGlList(string name = null)
         {
             ListNumber = Gl.glGenLists(1); // make a single list
 
-            if (name != null)
+            if (!string.IsNullOrEmpty(name))
                 this.name = name;
             else
                 this.name = "NoName_" + ListNumber.ToString();
+
+            listCounter++;
         }
 
         public int ListNumber { get; }
@@ -39,7 +43,15 @@ namespace CADability.Forms.OpenGL
         {
             isDeleted = true;
             Gl.glDeleteLists(ListNumber, 1);
+
+            int glError = Gl.glGetError();
+            if (glError != 0)
+                throw new PaintToOpenGLException($"Unable to delete List no:0x{ListNumber.ToString("X")}");            
+
+            listCounter--;
+
             RaiseDeletedEvent();
+            var current = Wgl.wglGetCurrentContext();
         }
 
         public delegate void DeletedEventHandler(object sender, EventArgs e);

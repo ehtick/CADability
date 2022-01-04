@@ -2767,11 +2767,6 @@ namespace CADability
             throw new NotImplementedException("The method or operation is not implemented.");
         }
 
-        void IPaintTo3D.FreeUnusedLists()
-        {
-            throw new NotImplementedException("The method or operation is not implemented.");
-        }
-
         void IPaintTo3D.UseZBuffer(bool use)
         {
             throw new NotImplementedException("The method or operation is not implemented.");

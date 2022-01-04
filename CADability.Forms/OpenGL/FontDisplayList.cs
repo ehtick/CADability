@@ -9,14 +9,25 @@ namespace CADability.Forms.OpenGL
         private string fontName;
         private IntPtr deviceContext;
         private bool disposedValue;
+        private OpenGLResourceManager resManager;
 
         public string FontName { get => fontName; }
         public IntPtr DeviceContext { get => deviceContext; }
 
-        public FontDisplayList(string fontName, IntPtr deviceContext)
+        public FontDisplayList(string fontName, IntPtr deviceContext, OpenGLResourceManager resManager)
         {
+            if (string.IsNullOrEmpty(fontName))
+                throw new ArgumentNullException(nameof(fontName));
+
+            if (deviceContext == IntPtr.Zero)
+                throw new ArgumentNullException(nameof(deviceContext));
+
+            if (resManager is null)
+                throw new ArgumentNullException(nameof(resManager));
+
             this.fontName = fontName;
             this.deviceContext = deviceContext;
+            this.resManager = resManager;
         }
 
         /// <summary>
@@ -31,11 +42,12 @@ namespace CADability.Forms.OpenGL
                 IntPtr oldfont = Gdi.SelectObject(DeviceContext, fnt);
                 Gdi.GLYPHMETRICSFLOAT[] glyphmetrics = new Gdi.GLYPHMETRICSFLOAT[1];
 
-                OpenGlList list = new OpenGlList(FontName + "-" + c);
+                OpenGlList list = resManager.CreateNewList(FontName + "-" + c);
+                //OpenGlList list = new OpenGlList(FontName + "-" + c);
 
                 if (Wgl.wglUseFontOutlines(DeviceContext, (int)c, 1, list.ListNumber, 20.0f, 0.0f, Wgl.WGL_FONT_POLYGONS, glyphmetrics))
                 {
-                    System.Diagnostics.Debug.WriteLine("wglUseFontOutlines success: " + deviceContext.ToString() + ", " + c);
+                    //System.Diagnostics.Debug.WriteLine("wglUseFontOutlines success: " + deviceContext.ToString() + ", " + c);
                     CharacterDisplayInfo cdl;
                     cdl.Glyphmetrics = glyphmetrics[0];
                     cdl.Displaylist = list;
@@ -59,13 +71,15 @@ namespace CADability.Forms.OpenGL
                 if (disposing)
                 {
                     //Dispose all open OpenGLDisplayLists
+                    System.Diagnostics.Debug.WriteLine("Disposing FontDisplayList: " + this.FontName);
                     if (Values != null)
                         foreach (CharacterDisplayInfo cdi in Values)
-                            cdi.Displaylist.Dispose();
+                            cdi.Displaylist.Dispose();                                        
                 }
 
                 // free unmanaged resources (unmanaged objects) and override finalizer
                 // set large fields to null
+                resManager = null;
                 disposedValue = true;
             }
         }

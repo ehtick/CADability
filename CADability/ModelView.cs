@@ -818,10 +818,9 @@ namespace CADability
                 }
                 catch (PaintTo3DOutOfMemory)
                 {
-                    // hier wirklich Collect aufrufen, damit die OpenGL Listen freigegeben werden
+                    //Does this really help?
                     System.GC.Collect();
-                    System.GC.WaitForPendingFinalizers(); // nicht entfernen! kein Debug
-                    paintTo3D.FreeUnusedLists();
+                    System.GC.WaitForPendingFinalizers(); // nicht entfernen! kein Debug                    
                 }
                 paintTo3D.FinishPaint();
             }

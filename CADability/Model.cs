@@ -353,9 +353,9 @@ namespace CADability
                     layerFaceObjects.Clear(); // die werden nicht mehr gebraucht
                     layerTransparentObjects.Clear();
                     layerCurveObjects.Clear();
+                    //Does this really help?
                     System.GC.Collect();
-                    System.GC.WaitForPendingFinalizers(); // nicht entfernen! kein Debug
-                    paintTo3D.FreeUnusedLists();
+                    System.GC.WaitForPendingFinalizers(); // nicht entfernen! kein Debug                    
                     // RecalcDisplayLists(paintTo3D); // nochmal wiederholen, und was wenns da auch nicht geht???
                     // nicht wiederholen, einfach mit den unvollständigen Listen weitermachen
                 }

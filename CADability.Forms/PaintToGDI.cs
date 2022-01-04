@@ -1095,11 +1095,6 @@ namespace CADability.Forms
             throw new Exception("The method or operation is not implemented.");
         }
 
-        void IPaintTo3D.FreeUnusedLists()
-        {
-            throw new Exception("The method or operation is not implemented.");
-        }
-
         void IPaintTo3D.UseZBuffer(bool use)
         {
 

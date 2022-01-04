@@ -2,19 +2,21 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
 
 namespace CADability.Forms.OpenGL
 {
     internal class OpenGLResourceManager : IDisposable
     {
-        private bool disposedValue;
+        private bool disposedValue;        
 
         //Font management
         Dictionary<string, FontDisplayList> fonts = new Dictionary<string, FontDisplayList>();
 
         // Context management
         List<IntPtr> activeRenderContexts = new List<IntPtr>();
+        
+        //This context will contain all lists
+        IntPtr masterContext;
 
         //Control device context and handle management
         IntPtr activeControlDC;
@@ -33,7 +35,6 @@ namespace CADability.Forms.OpenGL
 
         }
 
-
         public void OpenList(string listName)
         {
             if (string.IsNullOrEmpty(listName))
@@ -42,19 +43,32 @@ namespace CADability.Forms.OpenGL
             if (CurrentList != null)
                 throw new PaintToOpenGLException("IPaintTo3DList: nested lists not allowed");
 
-            CurrentList = new OpenGlList(listName);
+            CurrentList = CreateNewList(listName);
             CurrentList.Open();
+        }
 
-            //If the list was deleted in the meantime it can be removed from the listMaster
-            //as there is no need to monitor it anymore
-            CurrentList.Deleted += OpenGlList_Deleted;
+        /// <summary>
+        /// Call this function to create a new list and monitor it for deletion.
+        /// </summary>
+        /// <param name="listName"></param>
+        /// <returns></returns>
+        /// <exception cref="PaintToOpenGLException"></exception>
+        internal OpenGlList CreateNewList(string listName)
+        {
+            OpenGlList newList = new OpenGlList(listName);
 
-            listMaster.Add(CurrentList);
-            System.Diagnostics.Debug.WriteLine($"Open List: {listName}, {CurrentList.ListNumber}");
+            //Monitor if the list was directly deleted
+            newList.Deleted += OpenGlList_Deleted;
+
+            listMaster.Add(newList);
 
             int error = Gl.glGetError();
             if (error != 0)
-                throw new PaintToOpenGLException("OpenList: Unable to open a list:" + error.ToString("X"));
+                throw new PaintToOpenGLException("OpenList: Unable to open a list: 0x" + error.ToString("X"));
+            else
+                System.Diagnostics.Debug.WriteLine($"Created List: {listName}, 0x{newList.ListNumber.ToString("X")}");
+
+            return newList;
         }
 
         private void OpenGlList_Deleted(object sender, EventArgs e)
@@ -66,19 +80,16 @@ namespace CADability.Forms.OpenGL
         public IPaintTo3DList CloseList()
         {
             if (CurrentList != null)
-            {
-                listMaster.Remove(CurrentList);
                 CurrentList.Close();
-            }
 
             OpenGlList res = CurrentList;
             CurrentList = null;
 
-            System.Diagnostics.Debug.WriteLine("Close List:" + res.ListNumber.ToString("X"));
+            System.Diagnostics.Debug.WriteLine("Close List: 0x" + res.ListNumber.ToString("X"));
 
             int error = Gl.glGetError();
             if (error != 0)
-                throw new PaintToOpenGLException("OpenList: Unable to close a list:" + error.ToString("X"));
+                throw new PaintToOpenGLException("OpenList: Unable to close a list: 0x" + error.ToString("X"));
 
             if (res is null)
                 return null;
@@ -94,14 +105,23 @@ namespace CADability.Forms.OpenGL
 
         public IPaintTo3DList MakeList(List<IPaintTo3DList> sublists)
         {
-            StringBuilder name = new StringBuilder("_");
+            if (sublists.Count == 0)
+                return null;
 
-            foreach (IPaintTo3DList sub in sublists)
-                if (sub != null && !string.IsNullOrEmpty(sub.Name))
-                    name.Append(sub.Name + "_");
+            string listName = string.Empty;
 
-            OpenGlList res = new OpenGlList(name.ToString());
-            listMaster.Add(res);
+            if (sublists.Count > 0)
+            {
+                StringBuilder name = new StringBuilder("_");
+
+                foreach (IPaintTo3DList sub in sublists)
+                    if (sub != null && !string.IsNullOrEmpty(sub.Name))
+                        name.Append(sub.Name + "_");
+
+                listName = name.ToString();
+            }
+
+            OpenGlList res = CreateNewList(listName);
 
             res.Open();
             foreach (IPaintTo3DList sub in sublists)
@@ -118,12 +138,6 @@ namespace CADability.Forms.OpenGL
 
             if (!res.hasContents)
                 res.Delete();
-
-            System.Diagnostics.Debug.WriteLine("Make List: " + res.ListNumber.ToString("X"));
-
-            int error = Gl.glGetError();
-            if (error != 0)
-                throw new PaintToOpenGLException("MakeList: Unable to make a list:" + error.ToString("X"));
 
             return res;
         }
@@ -158,19 +172,29 @@ namespace CADability.Forms.OpenGL
             activeControlDC = deviceContext;
             activeControlHandle = ctrl.Handle;
             ctrl.HandleDestroyed += Ctrl_HandleDestroyed;
-            ctrl.HandleCreated += Ctrl_HandleCreated;
+            ctrl.HandleCreated += Ctrl_HandleCreated;        
         }
 
         private void Ctrl_HandleCreated(object sender, EventArgs e)
         {
             throw new NotImplementedException();
-            //Disconnect from old handle connect to new handle
+            //TODO: Disconnect from old handle and connect to new handle
+            //See https://stackoverflow.com/questions/6796067/how-often-is-a-usercontrol-handle-recreated
+            //to find out how to force recreation of a handle.
+            //But this will not work anyway. CADability is not prepared for recreating the handle and will throw various errors.
         }
 
         private void Ctrl_HandleDestroyed(object sender, EventArgs e)
         {
-            ((System.Windows.Forms.Control)sender).HandleCreated -= Ctrl_HandleCreated;
-            ((System.Windows.Forms.Control)sender).HandleDestroyed -= Ctrl_HandleDestroyed;
+            DestroyHandle((System.Windows.Forms.Control)sender);
+        }
+
+        private void DestroyHandle(System.Windows.Forms.Control ctrl)
+        {
+            ctrl.HandleCreated -= Ctrl_HandleCreated;
+            ctrl.HandleDestroyed -= Ctrl_HandleDestroyed;
+
+            CleanupLists();
             DisconnectFromControl();
         }
 
@@ -184,7 +208,7 @@ namespace CADability.Forms.OpenGL
 
             if (!User.ReleaseDC(activeControlHandle, activeControlDC))
             {
-                //ERROR_INVALID_MENU_HANDLE 	0x579
+                //ERROR_INVALID_MENU_HANDLE 	0x579 - Can happen if this function was called too late.
                 int win32err = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
                 throw new PaintToOpenGLException($"Error while releasing device context: 0x{win32err.ToString("X")}");
             }
@@ -199,12 +223,12 @@ namespace CADability.Forms.OpenGL
             IntPtr renderContext = Wgl.wglCreateContext(deviceContext);
 
             if (renderContext == IntPtr.Zero)
-            {
-                int error = Gl.glGetError();
-                throw new PaintToOpenGLException("CreateContexts: Unable to create an OpenGL rendering context:" + error.ToString("X"));
-            }
+                throw new PaintToOpenGLException("CreateContexts: Unable to create an OpenGL rendering context");
 
-            System.Diagnostics.Debug.WriteLine("RenderContext created: " + renderContext.ToString());
+            System.Diagnostics.Debug.WriteLine("RenderContext created: 0x" + renderContext.ToString("X"));
+
+            if (masterContext == IntPtr.Zero)
+                masterContext = renderContext;
 
             activeRenderContexts.Add(renderContext);
             return renderContext;
@@ -217,11 +241,44 @@ namespace CADability.Forms.OpenGL
             //A new FontDisplayList is empty at the beginning and will fill if characters are requested later.
             if (!fonts.TryGetValue(fontName, out FontDisplayList res))
             {
-                res = new FontDisplayList(fontName, deviceContext);
+                res = new FontDisplayList(fontName, deviceContext, this);
                 fonts.Add(fontName, res);
             }
 
             return res;
+        }
+                
+        
+        void CleanupLists()
+        {
+            /// All Displaylists have to be closed before the context is lost.
+            /// Context is lost by either deleting it or releasing the device context to the control
+            
+            //Check if the current context is the master context
+            //If not or the masterContext is Null the delete operation of the lists will fail!
+            if (Wgl.wglGetCurrentContext() != masterContext)
+                if (!Wgl.wglMakeCurrent(activeControlDC, masterContext))
+                    throw new PaintToOpenGLException("Failed to switch to master context to delete open lists.");            
+
+            //1. Delete all Fonts (including characters with OpenGL List)
+            if (fonts != null)
+            {
+                foreach (var fontItem in fonts)
+                    fontItem.Value.Dispose();
+
+                fonts.Clear();
+                fonts = null;
+            }
+
+            //2. Delete all open lists
+            if (listMaster != null)
+            {
+                //This way the listMaster can be modified from outside while looping
+                while (listMaster.Count > 0)
+                    listMaster[0].Dispose();
+
+                listMaster = null;
+            }
         }
 
         protected virtual void Dispose(bool disposing)
@@ -230,34 +287,29 @@ namespace CADability.Forms.OpenGL
             {
                 if (disposing)
                 {
-                    //1. Delete all Fonts (including characters with OpenGL List)
-                    if (fonts != null)
+                    //We are still connected to the Control but the Resource Manager should be disposed
+                    //This will happen if the control (CadCanvas) is still active (not destroyed) but the CADability project changes                    
+                    if(activeControlHandle != IntPtr.Zero)
                     {
-                        foreach (var fontItem in fonts)
-                            fontItem.Value.Dispose();
+                        System.Windows.Forms.Control ctrl = System.Windows.Forms.Control.FromHandle(activeControlHandle);
+                        DestroyHandle(ctrl);
                     }
 
-                    //2. Delete all open lists
-                    if(listMaster != null)
-                    {
-                        for (int i = listMaster.Count - 1; i >= 0; i--)
-                        {
-                            OpenGlList item = listMaster[i];
-                            item.Dispose();
-                            listMaster.RemoveAt(i);
-                        }
-                    }
-
-                    //3. Delete all open Contexts
+                    //Delete all open Contexts
                     if (activeRenderContexts != null)
                     {
+                        //Delete from last to first. To delete the main (first) at the end
                         for (int i = activeRenderContexts.Count - 1; i >= 0; i--)
                         {
                             bool deletionSuccessfull = Wgl.wglDeleteContext(activeRenderContexts[i]);
                             if (!deletionSuccessfull)
-                                throw new PaintToOpenGLException("Unable to delete Context:" + activeRenderContexts[i].ToString("X"));
-                            activeRenderContexts.RemoveAt(i);
+                                throw new PaintToOpenGLException("Unable to delete Context: 0x" + activeRenderContexts[i].ToString("X"));
+                            else
+                                System.Diagnostics.Debug.WriteLine("Successfully deleted Context 0x" + activeRenderContexts[i].ToString("X"));                            
                         }
+                        activeRenderContexts.Clear();
+                        activeRenderContexts = null;
+                        masterContext = IntPtr.Zero;
                     }
                 }
 
@@ -266,8 +318,9 @@ namespace CADability.Forms.OpenGL
                 disposedValue = true;
 
                 IntPtr mh = Kernel.GetModuleHandle("opengl32.dll");
-                if (mh != IntPtr.Zero) Kernel.FreeLibrary(mh);
-            }
+                if (mh != IntPtr.Zero)
+                    Kernel.FreeLibrary(mh);
+            }            
         }
 
         public void Dispose()

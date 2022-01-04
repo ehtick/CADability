@@ -12,6 +12,8 @@ namespace CADability.App
 {
     public partial class MainMdiForm : Form
     {
+        private int counter = 0;
+
         public MainMdiForm()
         {
             InitializeComponent();
@@ -25,8 +27,11 @@ namespace CADability.App
 
         private void btnAddOne_Click(object sender, EventArgs e)
         {
+            counter++;
+            
             ChildMdiForm frm = new ChildMdiForm();
             frm.MdiParent = this;
+            frm.Text=$"Counter: {counter}";
             frm.Show();
         }
 

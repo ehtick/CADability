@@ -292,11 +292,32 @@ namespace CADability
         }
         public void Disconnect(IPaintTo3D paintTo3D)
         {
-            PaintFacesCache?.Dispose();
-            PaintTransparentCache?.Dispose();
-            PaintCurvesCache?.Dispose();
-            PaintUnscaledCache?.Dispose();
+            if (PaintFacesCache != null)
+            {
+                PaintFacesCache.Dispose();
+                PaintFacesCache = null;
+            }
+
+            if (PaintTransparentCache != null)
+            {
+                PaintTransparentCache.Dispose();
+                PaintTransparentCache = null;
+            }
+
+            if (PaintCurvesCache != null)
+            {
+                PaintCurvesCache.Dispose();
+                PaintCurvesCache = null;
+            }
+
+            if (PaintUnscaledCache != null)
+            {
+                PaintUnscaledCache.Dispose();
+                PaintUnscaledCache = null;
+            }
+            //Don't dispose here - this will be done later
             this.paintTo3D = null;
+
             Settings.GlobalSettings.SettingChangedEvent -= new SettingChangedDelegate(OnSettingChanged);
         }
         public void Disconnect(PaintBuffer paintBuffer)
@@ -1331,7 +1352,10 @@ namespace CADability
                         allTransparent.Add(kv.Value);
                     }
                 }
-                PaintTransparentCache = paintTo3D.MakeList(allTransparent);
+
+                if (allTransparent.Count > 0)
+                    PaintTransparentCache = paintTo3D.MakeList(allTransparent);
+
                 List<IPaintTo3DList> allCurves = new List<IPaintTo3DList>();
                 foreach (KeyValuePair<Layer, IPaintTo3DList> kv in model.layerCurveDisplayList)
                 {
@@ -1340,7 +1364,9 @@ namespace CADability
                         allCurves.Add(kv.Value);
                     }
                 }
-                PaintCurvesCache = paintTo3D.MakeList(allCurves);
+
+                if (allCurves.Count > 0)
+                    PaintCurvesCache = paintTo3D.MakeList(allCurves);
             }
             if (dirty || recalcVisibility || paintTo3D.PixelToWorld != currentUnscaledScale)
             {
