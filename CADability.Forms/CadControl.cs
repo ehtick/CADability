@@ -20,6 +20,7 @@ namespace CADability.Forms
         #region PRIVATE FIELDS
 
         private CadFrame cadFrame; // the frame, which knows about the views, the ControlCenter (PropertiesExplorer), the menu
+        private bool IsSetupDone;
 
         #endregion PRIVATE FIELDS
 
@@ -128,14 +129,19 @@ namespace CADability.Forms
         }
 
         protected override void OnHandleCreated(EventArgs e)
-        {
-            //FIXME: Doesn't seem to be the right place to this!
-            //The handle could be recreated and the event could be hooked up twice.
-            setupParentForm();
+        {            
+            //The handle could be recreated and the event could be run twice.
 
-            // open an existing Project or create a new one
-            ToolBars.CreateOrRestoreToolbars(toolStripContainer, cadFrame);
-            Application.Idle += new EventHandler(OnIdle); // update the toolbars (menus are updated when they popup)
+            if(!IsSetupDone)
+            {
+                IsSetupDone = true;
+
+                setupParentForm();
+
+                // open an existing Project or create a new one
+                ToolBars.CreateOrRestoreToolbars(toolStripContainer, cadFrame);
+                Application.Idle += new EventHandler(OnIdle); // update the toolbars (menus are updated when they popup)                
+            }
 
             base.OnHandleCreated(e);
         }

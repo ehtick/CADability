@@ -40,8 +40,7 @@ namespace CADability.Forms.OpenGL
         Color backgroundColor; // Die Hintergrundfarbe um sicherzustellen, dass nicht mit dieser farbe gezeichnet wird
         Color selectColor;
 
-        IntPtr renderContext = IntPtr.Zero;
-        byte accumBits = 0, colorBits = 32, depthBits = 16;
+        IntPtr renderContext = IntPtr.Zero;        
 
         OpenGLResourceManager resManager = new OpenGLResourceManager();
 
@@ -105,6 +104,7 @@ namespace CADability.Forms.OpenGL
             paintSurfaceEdges = true;
             selectColor = Color.Yellow;
             lineWidthFactor = 10.0;
+            resManager.HandleRecreated += ResManager_HandleRecreated;
         }
 
         public void SetClientSize(Size sz)
@@ -119,9 +119,9 @@ namespace CADability.Forms.OpenGL
 
             this.isBitmap = toBitmap;
 
-            SetupPixelFormat(deviceContext, toBitmap);
+            resManager.SetupPixelFormat(deviceContext, toBitmap);
 
-            //Create rendering context
+            //Create rendering context            
             renderContext = resManager.CreateContext(deviceContext, toBitmap);
 
             clientwidth = width;
@@ -140,52 +140,13 @@ namespace CADability.Forms.OpenGL
             CheckError();
         }
 
-        private void SetupPixelFormat(IntPtr deviceContext, bool toBitmap)
+        private void ResManager_HandleRecreated(object sender, EventArgs e)
         {
-            //Setup pixel format
-            Gdi.PIXELFORMATDESCRIPTOR pixelFormat = new Gdi.PIXELFORMATDESCRIPTOR();
-
-            pixelFormat.nSize = (short)Marshal.SizeOf(pixelFormat);
-            pixelFormat.nVersion = 1;
-
-            if (toBitmap)
-                pixelFormat.dwFlags = Gdi.PFD_SUPPORT_OPENGL | Gdi.PFD_DRAW_TO_BITMAP;
-            else
-                pixelFormat.dwFlags = Gdi.PFD_DRAW_TO_WINDOW | Gdi.PFD_SUPPORT_OPENGL | Gdi.PFD_DOUBLEBUFFER;
-
-            pixelFormat.iPixelType = (byte)Gdi.PFD_TYPE_RGBA;
-            pixelFormat.cColorBits = colorBits;
-            pixelFormat.cRedBits = 0;
-            pixelFormat.cRedShift = 0;
-            pixelFormat.cGreenBits = 0;
-            pixelFormat.cGreenShift = 0;
-            pixelFormat.cBlueBits = 0;
-            pixelFormat.cBlueShift = 0;
-            pixelFormat.cAlphaBits = 0;
-            pixelFormat.cAlphaShift = 0;
-            pixelFormat.cAccumBits = accumBits;
-            pixelFormat.cAccumRedBits = 0;
-            pixelFormat.cAccumGreenBits = 0;
-            pixelFormat.cAccumBlueBits = 0;
-            pixelFormat.cAccumAlphaBits = 0;
-            pixelFormat.cDepthBits = depthBits;
-            pixelFormat.cStencilBits = 1; // stencilBits;
-            pixelFormat.cAuxBuffers = 0;
-            pixelFormat.iLayerType = (byte)Gdi.PFD_MAIN_PLANE;
-            pixelFormat.bReserved = 0;
-            pixelFormat.dwLayerMask = 0;
-            pixelFormat.dwVisibleMask = 0;
-            pixelFormat.dwDamageMask = 0;
-
-            //Set pixel format            
-            int selectedFormat = Gdi.ChoosePixelFormat(deviceContext, ref pixelFormat);            
-            //Make sure the requested pixel format is available
-            if (selectedFormat == 0)
-                throw new PaintToOpenGLException("SetupPixelFormat: Unable to find a suitable pixel format");
-
-            if (!Gdi.SetPixelFormat(deviceContext, selectedFormat, ref pixelFormat))
-                throw new PaintToOpenGLException(string.Format("SetupPixelFormat: Unable to set the requested pixel format ({0})", selectedFormat));
+            Control ctrl = (Control)sender;
+            this.Init(ctrl);
         }
+
+        
 
         // Mit HashCode und Equals hat es folgende Bewandnis:
         // Der HashCode und Equals darf sich nicht ändern, solange das Objekt als Key für ein Dictionary verwendet
@@ -281,9 +242,9 @@ namespace CADability.Forms.OpenGL
             Init(deviceContext, ctrl.ClientSize.Width, ctrl.ClientSize.Height, false);
 
             //Find the owner windows of this control
-            Form controlOwner = ctrl.FindForm();
-            if (controlOwner is null)
-                throw new PaintToOpenGLException("Unable to find owner of control");
+            //Form controlOwner = ctrl.FindForm();
+            //if (controlOwner is null)
+            //    throw new PaintToOpenGLException("Unable to find owner of control");
 
             Gl.glPixelStorei(Gl.GL_UNPACK_ALIGNMENT, 1);
             Gl.glPixelStorei(Gl.GL_PACK_ALIGNMENT, 1);
