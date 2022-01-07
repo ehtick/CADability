@@ -41,6 +41,9 @@ namespace CADability.Forms.OpenGL
         }
         public void Delete()
         {
+            if (isDeleted)
+                return;
+
             isDeleted = true;
             Gl.glDeleteLists(ListNumber, 1);
 
@@ -51,7 +54,7 @@ namespace CADability.Forms.OpenGL
             listCounter--;
 
             RaiseDeletedEvent();
-            var current = Wgl.wglGetCurrentContext();
+            //var current = Wgl.wglGetCurrentContext();
         }
 
         public delegate void DeletedEventHandler(object sender, EventArgs e);
