@@ -1341,8 +1341,12 @@ namespace CADability
                     }
                 }
 
-                if (allFaces.Count > 0)
-                    PaintFacesCache = paintTo3D.MakeList(allFaces);
+                //Clean up previous PaintFacesCache
+                //if (PaintFacesCache != null)
+                //    PaintFacesCache.Dispose();
+
+                //Create List event if it's going to be empty!
+                PaintFacesCache = paintTo3D.MakeList(allFaces);
 
                 List<IPaintTo3DList> allTransparent = new List<IPaintTo3DList>();
                 foreach (KeyValuePair<Layer, IPaintTo3DList> kv in model.layerTransparentDisplayList)
@@ -1353,8 +1357,12 @@ namespace CADability
                     }
                 }
 
-                if (allTransparent.Count > 0)
-                    PaintTransparentCache = paintTo3D.MakeList(allTransparent);
+                //Clean up previous PaintTransparentCach
+                //if (PaintTransparentCache != null)
+                //    PaintTransparentCache.Dispose();
+
+                //Create List even if it's going to be empty!
+                PaintTransparentCache = paintTo3D.MakeList(allTransparent);
 
                 List<IPaintTo3DList> allCurves = new List<IPaintTo3DList>();
                 foreach (KeyValuePair<Layer, IPaintTo3DList> kv in model.layerCurveDisplayList)
@@ -1365,8 +1373,12 @@ namespace CADability
                     }
                 }
 
-                if (allCurves.Count > 0)
-                    PaintCurvesCache = paintTo3D.MakeList(allCurves);
+                //Clean up previous PaintCurvesCache list
+                //if (PaintCurvesCache != null)
+                //    PaintCurvesCache.Dispose();
+
+                //Create List even if it's going to be empty!
+                PaintCurvesCache = paintTo3D.MakeList(allCurves);
             }
             if (dirty || recalcVisibility || paintTo3D.PixelToWorld != currentUnscaledScale)
             {
@@ -1382,6 +1394,11 @@ namespace CADability
                         }
                     }
                 }
+
+                //Clean previous PaintUnscaledCache
+                //if (PaintUnscaledCache != null)
+                //    PaintUnscaledCache.Dispose();
+
                 PaintUnscaledCache = paintTo3D.CloseList();
             }
 

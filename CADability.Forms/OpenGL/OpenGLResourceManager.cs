@@ -109,8 +109,9 @@ namespace CADability.Forms.OpenGL
         private void OpenGlList_Deleted(object sender, EventArgs e)
         {
             ((OpenGlList)sender).Deleted -= OpenGlList_Deleted;
-            listMaster.Remove((OpenGlList)sender);
-        }
+            if (!listMaster.Remove((OpenGlList)sender))
+                throw new IndexOutOfRangeException("Unable to find and delete specified OpenGL List");
+        }        
 
         public IPaintTo3DList CloseList()
         {
@@ -244,7 +245,7 @@ namespace CADability.Forms.OpenGL
 
             return deviceContext;
         }
-                
+
         private void Ctrl_HandleCreated(object sender, EventArgs e)
         {
             //FixMe: 06.01.2022 MM Event raised multiple times
@@ -285,12 +286,12 @@ namespace CADability.Forms.OpenGL
             fakeControl.Dispose();
             fakeControl = null;
 
-            fakeControlContext = IntPtr.Zero;            
+            fakeControlContext = IntPtr.Zero;
         }
-                
+
         private void Ctrl_HandleDestroyed(object sender, EventArgs e)
         {
-            System.Windows.Forms.Control ctrl = (System.Windows.Forms.Control)sender;            
+            System.Windows.Forms.Control ctrl = (System.Windows.Forms.Control)sender;
 
             if (ctrl.RecreatingHandle)
             {

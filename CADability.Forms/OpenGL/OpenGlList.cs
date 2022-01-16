@@ -9,6 +9,8 @@ namespace CADability.Forms.OpenGL
     {
         public static int listCounter = 0;
 
+        private readonly object deletedLock = new object();
+
         public bool hasContents, isDeleted;
         public OpenGlList(string name = null)
         {
@@ -41,15 +43,19 @@ namespace CADability.Forms.OpenGL
         }
         public void Delete()
         {
-            if (isDeleted)
-                return;
+            lock (deletedLock)
+            {
+                if (isDeleted)
+                    return;
 
-            isDeleted = true;
+                isDeleted = true;
+            }
+
             Gl.glDeleteLists(ListNumber, 1);
 
             int glError = Gl.glGetError();
             if (glError != 0)
-                throw new PaintToOpenGLException($"Unable to delete List no:0x{ListNumber.ToString("X")}");            
+                throw new PaintToOpenGLException($"Unable to delete List no:0x{ListNumber.ToString("X")}");
 
             listCounter--;
 
@@ -98,13 +104,19 @@ namespace CADability.Forms.OpenGL
                     System.Diagnostics.Debug.WriteLine("Disposing OpenGl List No.: " + ListNumber.ToString());
                     Delete();
 
-                    if (keepAlive != null)
-                        for (int i = 0; i < keepAlive.Count; i++)
-                            (keepAlive[i] as OpenGlList)?.Delete();
+                    //if (keepAlive != null)
+                    //    for (int i = keepAlive.Count - 1; i >= 0; i--)
+                    //    {
+                    //        if (keepAlive[i] != null && keepAlive[i] is OpenGlList ogll)
+                    //            ogll.Dispose();
+
+                    //        keepAlive.RemoveAt(i);
+                    //    }
                 }
 
                 // free unmanaged resources (unmanaged objects) and override finalizer
                 // set large fields to null
+                keepAlive = null;
                 disposedValue = true;
             }
         }
