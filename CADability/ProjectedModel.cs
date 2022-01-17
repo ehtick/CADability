@@ -1342,8 +1342,8 @@ namespace CADability
                 }
 
                 //Clean up previous PaintFacesCache
-                //if (PaintFacesCache != null)
-                //    PaintFacesCache.Dispose();
+                if (PaintFacesCache != null && recalcVisibility)
+                    PaintFacesCache.Dispose();
 
                 //Create List event if it's going to be empty!
                 PaintFacesCache = paintTo3D.MakeList(allFaces);
@@ -1358,8 +1358,8 @@ namespace CADability
                 }
 
                 //Clean up previous PaintTransparentCach
-                //if (PaintTransparentCache != null)
-                //    PaintTransparentCache.Dispose();
+                if (PaintTransparentCache != null && recalcVisibility)
+                    PaintTransparentCache.Dispose();
 
                 //Create List even if it's going to be empty!
                 PaintTransparentCache = paintTo3D.MakeList(allTransparent);
@@ -1374,8 +1374,8 @@ namespace CADability
                 }
 
                 //Clean up previous PaintCurvesCache list
-                //if (PaintCurvesCache != null)
-                //    PaintCurvesCache.Dispose();
+                if (PaintCurvesCache != null && recalcVisibility)
+                    PaintCurvesCache.Dispose();
 
                 //Create List even if it's going to be empty!
                 PaintCurvesCache = paintTo3D.MakeList(allCurves);
@@ -1396,8 +1396,8 @@ namespace CADability
                 }
 
                 //Clean previous PaintUnscaledCache
-                //if (PaintUnscaledCache != null)
-                //    PaintUnscaledCache.Dispose();
+                if (PaintUnscaledCache != null && recalcVisibility)
+                    PaintUnscaledCache.Dispose();
 
                 PaintUnscaledCache = paintTo3D.CloseList();
             }

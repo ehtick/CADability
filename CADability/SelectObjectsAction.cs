@@ -727,6 +727,9 @@ namespace CADability.Actions
                 }
             }
 #endif
+            //Clean up previous Selected Objects Display List
+            if (displayList != null)
+                displayList.Dispose();
             displayList = null; // gilt nicht mehr, wird beim repaint neu generiert
             if (selectedObjects.Count > 0)
             {   // es wird in ein nicht leeres Array zugefügt, da können auch welche drin sein, die 

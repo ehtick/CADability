@@ -104,14 +104,14 @@ namespace CADability.Forms.OpenGL
                     System.Diagnostics.Debug.WriteLine("Disposing OpenGl List No.: " + ListNumber.ToString());
                     Delete();
 
-                    //if (keepAlive != null)
-                    //    for (int i = keepAlive.Count - 1; i >= 0; i--)
-                    //    {
-                    //        if (keepAlive[i] != null && keepAlive[i] is OpenGlList ogll)
-                    //            ogll.Dispose();
+                    if (keepAlive != null)
+                        for (int i = keepAlive.Count - 1; i >= 0; i--)
+                        {
+                            if (keepAlive[i] != null && keepAlive[i] is OpenGlList ogll)
+                                ogll.Dispose();
 
-                    //        keepAlive.RemoveAt(i);
-                    //    }
+                            keepAlive.RemoveAt(i);
+                        }
                 }
 
                 // free unmanaged resources (unmanaged objects) and override finalizer

@@ -95,7 +95,7 @@ namespace CADability.Forms.OpenGL
             if (error != 0)
                 throw new PaintToOpenGLException("OpenList: Unable to open a list: 0x" + error.ToString("X"));
             else
-                System.Diagnostics.Debug.WriteLine($"Created List: {listName}, 0x{newList.ListNumber.ToString("X")}");
+                System.Diagnostics.Debug.WriteLine($"Created List: {listName}, 0x{newList.ListNumber.ToString("X")}, Count: {listMaster.Count}");
 
             return newList;
         }
