@@ -1304,7 +1304,7 @@ namespace CADability
                                     (this as IJsonWriteData).AddProperty(pi[i].Name, pval);
                                     serialized = true; // at least one property can be read and written
                                 }
-                                catch (TargetInvocationException t) { }
+                                catch (TargetInvocationException) { }
                             }
                         }
                     }

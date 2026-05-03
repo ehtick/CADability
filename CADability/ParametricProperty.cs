@@ -615,7 +615,6 @@ namespace CADability
             List<Face> forwardFacesCloned = new List<Face>();
             List<Face> backwardFacesCloned = new List<Face>();
             List<object> affectedObjectsCloned = new List<object>();
-            object fromHereCloned, toHereCloned;
             for (int i = 0; i < forwardFaces.Count; i++)
             {
                 if (clonedFaces.TryGetValue(forwardFaces[i], out Face clone)) forwardFacesCloned.Add(clone);
