@@ -805,7 +805,6 @@ namespace CADability
             // axis is currently only implemented as an edge, so nothing to do here
             ModifyAxis(objectsToCenterOn, m);
         }
-        private double currentValue;
         public override double Value
         {
             get
