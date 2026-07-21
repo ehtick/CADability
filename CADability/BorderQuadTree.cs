@@ -1,7 +1,6 @@
-﻿using CADability.Curve2D;
 using System;
 using System.Collections.Generic;
-using Wintellect.PowerCollections;
+using CADability.Curve2D;
 
 namespace CADability.Shapes
 {
@@ -19,10 +18,10 @@ namespace CADability.Shapes
          * Sollte es beim Aufbau eines Borders Probleme geben (z.B. ein Eintrittspunkt aber kein Austrittspunkt) dann wird eine exception geworfen
          * und der Quadtree etwas verruckelt neu gemacht.
          * Jedes Quadrat enthält also maximal zwei Bordersegmente, deren Start- und Endparameter bekannt sind. Und maximal einen Schnittpunkt.
-         * Je nach Operation werden die Intervalle der Segmente aus allen Quadraten zusammengesammelt. Dabei muss man wissen, ob der Eintritts- 
+         * Je nach Operation werden die Intervalle der Segmente aus allen Quadraten zusammengesammelt. Dabei muss man wissen, ob der Eintritts-
          * oder Austrittspunkt des einen Borders innerhalb oder außerhalb des anderen Borders liegt. Dieses wird rein logisch anhand der Eintritts-
          * und Austrittspunkte bestimmt, also ohne das Border selbst zu fragen.
-         * 
+         *
          * Es wird mit einem Integer Koordinatensystem gearbeitet und die horizontalen und vertikalen Schnittpunkte der Border mit dem Quadtree
          * nur einmal bestimmt. Deshalb kann man immer gut mit Gleichheiten rechnen
          */
@@ -138,7 +137,7 @@ namespace CADability.Shapes
                     return ranges.Count > 0;
                 }
             }
-            public Pair<double, double> removeInterval(double startHere)
+            public (double, double) removeInterval(double startHere)
             {
                 int ind = -1;
                 if (startHere == -1)
@@ -158,14 +157,14 @@ namespace CADability.Shapes
                 }
                 if (ind >= 0 && ind < ranges.Count)
                 {
-                    Pair<double, double> res = new Pair<double, double>(ranges[ind], ranges[ind + 1]);
+                    var res = (ranges[ind], ranges[ind + 1]);
                     ranges.RemoveRange(ind, 2);
                     return res;
                 }
-                return new Pair<double, double>(-1, -1);
+                return (-1, -1);
             }
 
-            internal Pair<double, double> removeIntervalEnd(double endHere)
+            internal (double, double) removeIntervalEnd(double endHere)
             {
                 int ind = -1;
                 if (endHere == -1)
@@ -185,11 +184,11 @@ namespace CADability.Shapes
                 }
                 if (ind >= 0 && ind < ranges.Count)
                 {
-                    Pair<double, double> res = new Pair<double, double>(ranges[ind], ranges[ind + 1]);
+                    var res = (ranges[ind], ranges[ind + 1]);
                     ranges.RemoveRange(ind, 2);
                     return res;
                 }
-                return new Pair<double, double>(-1, -1);
+                return (-1, -1);
             }
         }
         class CriticalPosition : ApplicationException
@@ -209,14 +208,14 @@ namespace CADability.Shapes
         /// Ein Quadrat des Quadtrees, wenn nicht unterteilt, dann enthält es von jedem Border nur ein Segment mit definierten Eintritts und Austrittspunkt.
         /// Tangentiale Schnitte sind nicht erlaubt, dann muss der ganze Quadtree anders positioniert werden.
         /// Enthält maximal einen Schnittpunkt der beiden Border.
-        /// 
+        ///
         /// Integer Koordinatensystem: so kann man einfache Hash-Tabellen machen, in denen für horizontale und vertikale Linien die Schnittpunkte erfasst werden
         /// </summary>
         class Node
         {
             BorderQuadTree borderQuadTree; // Rückverweis
             quad quad; // die Lage des Quadranten im int-System
-            // entweder: 
+            // entweder:
             Node[] subTree; // wenn null, dann Blatt
             // oder:
             // Eigenschaften des Blattes:
@@ -528,7 +527,7 @@ namespace CADability.Shapes
             }
 
             private bool inside(double par, bool border1)
-            {   // bei Gleichheit von par und enter1/2 bzw. leave1/2 liefert bdr2 true und bdr1 false. 
+            {   // bei Gleichheit von par und enter1/2 bzw. leave1/2 liefert bdr2 true und bdr1 false.
                 // damit trift, wenn par selbst das andere enter/leave ist, jeweils nur einer der beiden Überprüfungen zu
                 if (border1)
                 {
@@ -652,7 +651,7 @@ namespace CADability.Shapes
         private BorderPosition position;
 
         double precision;
-        Dictionary<int, intersection[]> horIntSect1, horIntSect2, verIntSect1, verIntSect2; // die horizontalen und vertikalen Schnittpunkte der beiden Borders. 
+        Dictionary<int, intersection[]> horIntSect1, horIntSect2, verIntSect1, verIntSect2; // die horizontalen und vertikalen Schnittpunkte der beiden Borders.
 
         const double radianEps = 1e-6; // leider fällt mir dafür nix gescheites ein
         public BorderQuadTree(Border bdr1, Border bdr2, double precision)
@@ -833,7 +832,7 @@ namespace CADability.Shapes
 #endif
             // Stücke zusammensammeln:
             bool onBdr1;
-            Pair<double, double> act;
+            (double First, double Second) act;
             if (bdr1parts.hasInterval)
             {
                 onBdr1 = true;
@@ -978,7 +977,7 @@ namespace CADability.Shapes
                     SimpleShape[] ss = new SimpleShape[borders.Count];
                     for (int i = 0; i < borders.Count; ++i)
                     {
-                        ss[i] = new SimpleShape(borders[i] as Border);
+                        ss[i] = new SimpleShape(borders[i]);
                     }
                     return new CompoundShape(ss);
                 }
