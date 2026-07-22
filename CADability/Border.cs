@@ -4053,7 +4053,7 @@ namespace CADability.Shapes
 				{
 					forwardUsed.Add(c2d);
 					Path2D collect = new Path2D(new ICurve2D[] { c2d.Clone() });
-                    var usedInThisPath = new HashSet<ICurve2D>() { c2d };
+					var usedInThisPath = new HashSet<ICurve2D>() { c2d };
 					bool connected = false;
 					do
 					{
