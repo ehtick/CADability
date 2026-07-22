@@ -137,7 +137,7 @@ namespace CADability.Shapes
                     return ranges.Count > 0;
                 }
             }
-            public (double, double) removeInterval(double startHere)
+            public (double Start, double End) removeInterval(double startHere)
             {
                 int ind = -1;
                 if (startHere == -1)
@@ -157,14 +157,14 @@ namespace CADability.Shapes
                 }
                 if (ind >= 0 && ind < ranges.Count)
                 {
-                    var res = (ranges[ind], ranges[ind + 1]);
+                    (double Start, double End) res = (ranges[ind], ranges[ind + 1]);
                     ranges.RemoveRange(ind, 2);
                     return res;
                 }
                 return (-1, -1);
             }
 
-            internal (double, double) removeIntervalEnd(double endHere)
+            internal (double Start, double End) removeIntervalEnd(double endHere)
             {
                 int ind = -1;
                 if (endHere == -1)
@@ -184,7 +184,7 @@ namespace CADability.Shapes
                 }
                 if (ind >= 0 && ind < ranges.Count)
                 {
-                    var res = (ranges[ind], ranges[ind + 1]);
+                    (double Start, double End) res = (ranges[ind], ranges[ind + 1]);
                     ranges.RemoveRange(ind, 2);
                     return res;
                 }
@@ -832,7 +832,7 @@ namespace CADability.Shapes
 #endif
             // Stücke zusammensammeln:
             bool onBdr1;
-            (double First, double Second) act;
+            (double Start, double End) act;
             if (bdr1parts.hasInterval)
             {
                 onBdr1 = true;
@@ -845,16 +845,16 @@ namespace CADability.Shapes
             }
             List<ICurve2D> currentCollection = new List<ICurve2D>();
             List<Border> borders = new List<Border>();
-            while (act.First != -1)
+            while (act.Start != -1)
             {
                 if (onBdr1)
                 {
-                    ICurve2D[] parts = bdr1.GetPart(act.First, act.Second, true);
+                    ICurve2D[] parts = bdr1.GetPart(act.Start, act.End, true);
                     currentCollection.AddRange(parts);
                 }
                 else
                 {
-                    ICurve2D[] parts = bdr2.GetPart(act.First, act.Second, true);
+                    ICurve2D[] parts = bdr2.GetPart(act.Start, act.End, true);
                     if (op == op.subtract)
                     {   // das Ergebnis muss umgedreht werden!
                         Array.Reverse(parts);
@@ -890,7 +890,7 @@ namespace CADability.Shapes
                     // nächstes Teilstück auf dem anderen Border suchen
                     if (onBdr1)
                     {
-                        if (act.Second == bdr1.Segments.Length && bdr1parts.hasInterval && bdr1parts.ranges[0] == 0.0)
+                        if (act.End == bdr1.Segments.Length && bdr1parts.hasInterval && bdr1parts.ranges[0] == 0.0)
                         {   // es geht im selben Border über "Los"
                             act = bdr1parts.removeInterval(0.0);
                         }
@@ -898,7 +898,7 @@ namespace CADability.Shapes
                         {
                             for (int i = 0; i < borderIntersection.Count; i++)
                             {
-                                if (borderIntersection[i].par1 == act.Second) // überprüfung auf Gleichheit ist ok, da dieser Parameter nur einmal berechnet wird
+                                if (borderIntersection[i].par1 == act.End) // überprüfung auf Gleichheit ist ok, da dieser Parameter nur einmal berechnet wird
                                 {
                                     if (op == op.subtract)
                                         act = bdr2parts.removeIntervalEnd(borderIntersection[i].par2);
@@ -915,7 +915,7 @@ namespace CADability.Shapes
                     {
                         if (op == op.subtract)
                         {   // das 2. Stück läuft rückwärts
-                            if (act.First == 0.0 && bdr2parts.hasInterval && bdr2parts.ranges[bdr2parts.ranges.Count - 1] == bdr2.Segments.Length)
+                            if (act.Start == 0.0 && bdr2parts.hasInterval && bdr2parts.ranges[bdr2parts.ranges.Count - 1] == bdr2.Segments.Length)
                             {   // es geht im selben Border über "Los"
                                 act = bdr2parts.removeInterval(bdr2parts.ranges[bdr2parts.ranges.Count - 2]); // das letzte Stück liefern
                             }
@@ -923,7 +923,7 @@ namespace CADability.Shapes
                             {
                                 for (int i = 0; i < borderIntersection.Count; i++)
                                 {
-                                    if (borderIntersection[i].par2 == act.First)
+                                    if (borderIntersection[i].par2 == act.Start)
                                     {
                                         act = bdr1parts.removeInterval(borderIntersection[i].par1);
                                         onBdr1 = true;
@@ -935,7 +935,7 @@ namespace CADability.Shapes
                         }
                         else
                         {
-                            if (act.Second == bdr2.Segments.Length && bdr2parts.hasInterval && bdr2parts.ranges[0] == 0.0)
+                            if (act.End == bdr2.Segments.Length && bdr2parts.hasInterval && bdr2parts.ranges[0] == 0.0)
                             {   // es geht im selben Border über "Los"
                                 act = bdr2parts.removeInterval(0.0);
                             }
@@ -943,7 +943,7 @@ namespace CADability.Shapes
                             {
                                 for (int i = 0; i < borderIntersection.Count; i++)
                                 {
-                                    if (borderIntersection[i].par2 == act.Second)
+                                    if (borderIntersection[i].par2 == act.End)
                                     {
                                         act = bdr1parts.removeInterval(borderIntersection[i].par1);
                                         onBdr1 = true;
