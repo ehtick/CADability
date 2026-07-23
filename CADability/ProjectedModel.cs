@@ -286,10 +286,16 @@ namespace CADability
         }
         public void Disconnect(IPaintTo3D paintTo3D)
         {
-            foreach (IPaintTo3DList plist in allCurves) plist.Dispose();
-            foreach (IPaintTo3DList plist in allFaces) plist.Dispose();
-            foreach (IPaintTo3DList plist in allTransparent) plist.Dispose();
-            foreach (IPaintTo3DList plist in allUnscaled) plist.Dispose();
+            // entries may be null: IPaintTo3D.CloseList returns null for display lists without content
+            foreach (IPaintTo3DList plist in allCurves) plist?.Dispose();
+            foreach (IPaintTo3DList plist in allFaces) plist?.Dispose();
+            foreach (IPaintTo3DList plist in allTransparent) plist?.Dispose();
+            foreach (IPaintTo3DList plist in allUnscaled) plist?.Dispose();
+            allCurves.Clear();
+            allFaces.Clear();
+            allTransparent.Clear();
+            allUnscaled.Clear();
+            dirty = true; // the cached display lists have been disposed, they must be rebuilt if this ProjectedModel is connected again
             this.paintTo3D = null;
             Settings.GlobalSettings.SettingChangedEvent -= new SettingChangedDelegate(OnSettingChanged);
         }
