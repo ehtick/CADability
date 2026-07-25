@@ -19,6 +19,12 @@ the structure (but not the graphical implementation) of the user interface and s
 For your first experience you can simply build and start the solution and try to draw or construct 3d objects. Typically you will replace the CADability.App 
 by your own application or use only the CADability.dll to analyze or compose 3d models.
 
+For DWG/DXF handling CADability builds [ACadSharp](https://github.com/FriendsOfCADability/ACadSharp) from source. It is included as a git submodule, so clone with
+
+    git clone --recurse-submodules https://github.com/FriendsOfCADability/CADability.git
+
+or, in an existing clone, run `git submodule update --init --recursive` before building.
+
 Here is a quick overview of the [organizational classes](https://sofagh.github.io/CADability/CADabilityDoc/articles/orgclass.html).
 
 This is an overview of the CAD [database](https://sofagh.github.io/CADability/CADabilityDoc/articles/database.html), the geometrical entities that make up a model.
@@ -27,7 +33,7 @@ And this is the [complete table of contents](https://sofagh.github.io/CADability
 
 License: CADability uses some open source code copied into it source code:
 - a quite old version of Wintellect.PowerCollections: Copyright (c) 2004-2005, Wintellect
-- netDxf library: Copyright (C) 2009-2016 Daniel Carvajal (haplokuon@gmail.com)
+- [ACadSharp](https://github.com/FriendsOfCADability/ACadSharp) (built from source as a git submodule): Copyright (c) 2026 Albert Domenech, MIT license
 
 CADability uses  MathNet: http://github.com/mathnet/mathnet-numerics
 
