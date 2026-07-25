@@ -32,7 +32,6 @@ This is an overview of the CAD [database](https://sofagh.github.io/CADability/CA
 And this is the [complete table of contents](https://sofagh.github.io/CADability/CADabilityDoc/api/toc.html).
 
 License: CADability uses some open source code copied into it source code:
-- a quite old version of Wintellect.PowerCollections: Copyright (c) 2004-2005, Wintellect
 - [ACadSharp](https://github.com/FriendsOfCADability/ACadSharp) (built from source as a git submodule): Copyright (c) 2026 Albert Domenech, MIT license
 
 CADability uses  MathNet: http://github.com/mathnet/mathnet-numerics
