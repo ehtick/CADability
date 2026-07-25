@@ -33,6 +33,9 @@
   <ItemGroup>
     <ProjectReference Include="..\..\CADability.Forms\CADability.Forms.csproj" />
     <ProjectReference Include="..\..\CADability\CADability.csproj" />
+    <!-- direct reference because tests use ACadSharp types; does not flow from
+         CADability (PrivateAssets="all" there) -->
+    <ProjectReference Include="..\..\external\ACadSharp\src\ACadSharp\ACadSharp.csproj" />
   </ItemGroup>
 
 </Project>

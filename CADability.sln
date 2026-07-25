@@ -13,6 +13,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CADability.Tests", "tests\C
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Tests", "Tests", "{C605F551-B2C6-4B2E-A294-12A7E2C2CEDD}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ACadSharp", "external\ACadSharp\src\ACadSharp\ACadSharp.csproj", "{CB24B9AC-5004-43B1-B98E-19EB37DC871E}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -71,6 +73,18 @@ Global
 		{D850552B-002C-4622-BD0D-9673C3BA21F1}.RelWithDoc|Any CPU.Build.0 = Release|Any CPU
 		{D850552B-002C-4622-BD0D-9673C3BA21F1}.RelWithDoc|x64.ActiveCfg = Release|x64
 		{D850552B-002C-4622-BD0D-9673C3BA21F1}.RelWithDoc|x64.Build.0 = Release|x64
+		{CB24B9AC-5004-43B1-B98E-19EB37DC871E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CB24B9AC-5004-43B1-B98E-19EB37DC871E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CB24B9AC-5004-43B1-B98E-19EB37DC871E}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{CB24B9AC-5004-43B1-B98E-19EB37DC871E}.Debug|x64.Build.0 = Debug|Any CPU
+		{CB24B9AC-5004-43B1-B98E-19EB37DC871E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CB24B9AC-5004-43B1-B98E-19EB37DC871E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{CB24B9AC-5004-43B1-B98E-19EB37DC871E}.Release|x64.ActiveCfg = Release|Any CPU
+		{CB24B9AC-5004-43B1-B98E-19EB37DC871E}.Release|x64.Build.0 = Release|Any CPU
+		{CB24B9AC-5004-43B1-B98E-19EB37DC871E}.RelWithDoc|Any CPU.ActiveCfg = Release|Any CPU
+		{CB24B9AC-5004-43B1-B98E-19EB37DC871E}.RelWithDoc|Any CPU.Build.0 = Release|Any CPU
+		{CB24B9AC-5004-43B1-B98E-19EB37DC871E}.RelWithDoc|x64.ActiveCfg = Release|Any CPU
+		{CB24B9AC-5004-43B1-B98E-19EB37DC871E}.RelWithDoc|x64.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

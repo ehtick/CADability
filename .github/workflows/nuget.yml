@@ -11,10 +11,15 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          # ACadSharp is built from source (external/ACadSharp submodule, which
+          # itself pulls in CSUtilities as a submodule)
+          submodules: recursive
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          # ACadSharp's TargetFrameworks include net10.0, so restore needs the .NET 10 SDK
+          dotnet-version: '10.0.x'
       - name: Restore dependencies
         run: dotnet restore CADability/CADability.csproj
       - name: Build
