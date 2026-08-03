@@ -241,33 +241,26 @@ namespace CADability.GeoObject
             paintTo3D.PreparePointSymbol(this.symbol);
             paintTo3D.PreparePointSymbol(this.symbol | PointSymbol.Select);
         }
-        /// <summary>
-        /// Overrides <see cref="CADability.GeoObject.IGeoObjectImpl.PaintTo3D (IPaintTo3D)"/>
-        /// </summary>
-        /// <param name="paintTo3D"></param>
+
+        /// <inheritdoc />
         public override void PaintTo3D(IPaintTo3D paintTo3D)
         {
-            if (!paintTo3D.SelectMode)
-            {
-                if (colorDef != null) paintTo3D.SetColor(colorDef.Color);
-            }
-            if (OnPaintTo3D != null && OnPaintTo3D(this, paintTo3D)) return;
+            if (!paintTo3D.SelectMode && colorDef is not null)
+                paintTo3D.SetColor(colorDef.Color);
+
+            if (OnPaintTo3D != null && OnPaintTo3D(this, paintTo3D))
+                return;
+
+            var symbol = this.symbol;
+
+            // im Selectmode gibts Abstürze bei "0901_06_01_0.dxf", wenn man eine Bemaßung markiert
+            // und die normale Darstellung verwendet
             if (paintTo3D.SelectMode)
-            {
-                // paintTo3D.Points(new GeoPoint[] { this.location }, (float)this.size);
-                // im Selectmode gibts Abstürze bei "0901_06_01_0.dxf", wenn man eine Bemaßung markiert
-                // und die normale Darstellung verwendet
-                paintTo3D.Points(new GeoPoint[] { location }, (float)size, this.symbol | PointSymbol.Select);
-            }
-            else
-            {
-                paintTo3D.Points(new GeoPoint[] { location }, 1.0f, symbol);
-                // folgendes geht viel schneller:
-                //paintTo3D.Polyline(new GeoPoint[] { location - size * GeoVector.XAxis, location + size * GeoVector.XAxis });
-                //paintTo3D.Polyline(new GeoPoint[] { location - size * GeoVector.YAxis, location + size * GeoVector.YAxis });
-                //paintTo3D.Polyline(new GeoPoint[] { location - size * GeoVector.ZAxis, location + size * GeoVector.ZAxis });
-            }
+                symbol |= PointSymbol.Select;
+
+            paintTo3D.Points(new GeoPoint[] { location }, (float)size, symbol);
         }
+
         /// <summary>
         /// Overrides <see cref="CADability.GeoObject.IGeoObjectImpl.PrepareDisplayList (double)"/>
         /// </summary>
