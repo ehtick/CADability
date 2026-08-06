@@ -202,7 +202,12 @@ namespace CADability
             if (ToUndo is ReversibleChange)
             {
                 // System.Diagnostics.Debug.WriteLine("Simple Undo: " + (ToUndo as ReversibleChange).MethodOrPropertyName);
-                (ToUndo as ReversibleChange).Undo();
+                ReversibleChange reversibleChange = ToUndo as ReversibleChange;
+                if (!reversibleChange.Undo())
+                {   // ReversibleChange.Undo returns false when it cannot find a matching method or property.
+                    // Without this trace such a step is silently dropped and the user just sees an undo that does nothing.
+                    System.Diagnostics.Trace.WriteLine("UndoRedoSystem: undo step failed, no matching method or property: " + reversibleChange.ToString());
+                }
             }
             else
             {   // es muss eine ArrayList sein, also rückwärts iterieren

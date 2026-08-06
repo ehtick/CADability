@@ -46,6 +46,17 @@ namespace CADability.GeoObject
 		{ }
 
 		/// <summary>
+		/// Creates a new GeoObjectChange with a single <see cref="GeoObjectList"/> parameter. See the
+		/// according constructor of <see cref="ReversibleChange"/> for why this overload is required.
+		/// </summary>
+		/// <param name="objectToChange">The object which will be or was changed</param>
+		/// <param name="methodOrPropertyName">the case sensitive name of the method or property</param>
+		/// <param name="parameter">the list to pass as a single parameter</param>
+		public GeoObjectChange(IGeoObject objectToChange, string methodOrPropertyName, GeoObjectList parameter)
+			: base(objectToChange, methodOrPropertyName, parameter)
+		{ }
+
+		/// <summary>
 		/// Creates a new GeoObjectChange object that reflects a modification by the <see cref="ModOp"/> m.
 		/// </summary>
 		/// <param name="objectToChange">The object which will be or was changed</param>

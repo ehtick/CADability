@@ -1,3 +1,4 @@
+using CADability.GeoObject;
 using System;
 using System.Globalization;
 using System.Reflection;
@@ -67,6 +68,25 @@ namespace CADability
             this.parameter = parameter;
             this.parameters = null;
             this.interfaceForMethod = null;
+        }
+        /// <summary>
+        /// Creates a ReversibleChange with a single <see cref="GeoObjectList"/> parameter, e.g. to undo
+        /// <see cref="Model.Remove(GeoObjectList)"/> by calling <see cref="Model.Add(GeoObjectList)"/>.
+        /// <para>
+        /// This overload must exist: GeoObjectList defines an implicit conversion to IGeoObject[], which in
+        /// turn converts to object[] by array covariance. Without this overload a single GeoObjectList
+        /// argument binds to the "params object[]" constructor in its normal form, so the list is spread
+        /// into one parameter per contained object instead of being passed as one parameter. Undo would
+        /// then look for a method taking n objects, not find it and silently do nothing - which broke undo
+        /// for every operation on more than one object.
+        /// </para>
+        /// </summary>
+        /// <param name="objectToChange">The object which will be or was changed</param>
+        /// <param name="methodOrPropertyName">the case sensitive name of the method or property</param>
+        /// <param name="parameter">the list to pass as a single parameter</param>
+        public ReversibleChange(object objectToChange, string methodOrPropertyName, GeoObjectList parameter)
+            : this(objectToChange, methodOrPropertyName, (object)parameter)
+        {
         }
         /// <summary>
         /// The provided funtion knows how to undo the change and has the data, which is needed for the undo, captured
@@ -248,7 +268,8 @@ namespace CADability
         public object[] Parameters
         {
             get
-            {
+            {   // parameters is filled lazily in Undo(), so fall back to the single parameter constructor value
+                if (parameters == null) return new object[] { parameter };
                 return parameters.Clone() as object[];
             }
         }

@@ -770,6 +770,20 @@ namespace CADability.GeoObject
                 }
             }
             /// <summary>
+            /// Changing a GeoObject with a single <see cref="GeoObjectList"/> as the parameter for the undo
+            /// method, e.g. undoing <see cref="Block.Add(GeoObjectList)"/> by calling Remove with that list.
+            /// See the according constructor of <see cref="ReversibleChange"/> for why this overload is
+            /// required: without it the list would be spread into one parameter per contained object and
+            /// the undo would silently do nothing.
+            /// </summary>
+            /// <param name="geoObject">the GeoObject</param>
+            /// <param name="MethodOrPropertyName">name of a public method that might be called later by undo</param>
+            /// <param name="Parameter">the list to pass as a single parameter</param>
+            public Changing(IGeoObjectImpl geoObject, string MethodOrPropertyName, GeoObjectList Parameter)
+                : this(geoObject, MethodOrPropertyName, new object[] { Parameter })
+            {
+            }
+            /// <summary>
             /// Changing a GeoObject with a specification on how to undo that change.
             /// Undo might be performed later vie reflection. So we need the name of the method
             /// here and the parameters for that method. The method must be in the given interface.
