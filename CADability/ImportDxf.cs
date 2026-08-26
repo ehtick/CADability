@@ -552,7 +552,11 @@ namespace CADability.DXF
         {
             GeoObject.Ellipse e = GeoObject.Ellipse.Construct();
             GeoVector majorAxisVec = GeoVector(ellipse.MajorAxisEndPoint);
-            GeoVector minorAxisVec = GeoVector(ellipse.MinorAxisEndpoint);
+            // MinorAxisEndpoint was removed from ACadSharp; compute it from Normal × MajorAxis × RadiusRatio.
+            GeoVector normalVec = GeoVector(ellipse.Normal);
+            GeoVector minorDir = normalVec ^ majorAxisVec;
+            if (!minorDir.IsNullVector()) minorDir.Norm();
+            GeoVector minorAxisVec = minorDir * (majorAxisVec.Length * ellipse.RadiusRatio);
             e.SetEllipseCenterAxis(GeoPoint(ellipse.Center), majorAxisVec, minorAxisVec);
             e.StartParameter = ellipse.StartParameter;
             e.SweepParameter = ellipse.EndParameter - ellipse.StartParameter;
