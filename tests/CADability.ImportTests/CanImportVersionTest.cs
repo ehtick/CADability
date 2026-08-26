@@ -116,7 +116,7 @@ namespace CADability.ImportTests
         [TestMethod]
         public void can_import_version_accepts_dwg_of_a_readable_version()
         {
-            foreach (string version in new[] { "AC1014", "AC1015", "AC1018", "AC1021", "AC1024", "AC1027", "AC1032" })
+            foreach (string version in new[] { "AC1012", "AC1014", "AC1015", "AC1018", "AC1021", "AC1024", "AC1027", "AC1032" })
             {
                 string file = WriteFile(version + ".dwg", Dwg(version));
                 Assert.IsTrue(CADability.DXF.Import.CanImportVersion(file, out string found),
@@ -126,21 +126,20 @@ namespace CADability.ImportTests
         }
 
         [TestMethod]
-        public void can_import_version_rejects_dwg_older_than_release_14()
+        public void can_import_version_rejects_dwg_older_than_release_13()
         {
-            // ACadSharp reads DXF back to R11/R12 but DWG only from R14 on, so the same version
-            // can be readable as DXF and not readable as DWG.
-            foreach (string version in new[] { "AC1009", "AC1012" })
-            {
-                string dwg = WriteFile(version + "old.dwg", Dwg(version));
-                Assert.IsFalse(CADability.DXF.Import.CanImportVersion(dwg, out string found),
-                    $"DWG {version} must not be reported as readable");
-                Assert.AreEqual(version, found);
+            // ACadSharp reads DXF back to R11/R12 but DWG only to R13, so R11/R12 is readable as
+            // DXF and not readable as DWG - DwgReader throws CadNotSupportedException for it.
+            const string version = "AC1009";
 
-                string dxf = WriteFile(version + "old.dxf", TextDxf(version));
-                Assert.IsTrue(CADability.DXF.Import.CanImportVersion(dxf, out _),
-                    $"DXF {version} must be readable");
-            }
+            string dwg = WriteFile("old.dwg", Dwg(version));
+            Assert.IsFalse(CADability.DXF.Import.CanImportVersion(dwg, out string found),
+                "DWG R11/R12 must not be reported as readable");
+            Assert.AreEqual(version, found);
+
+            string dxf = WriteFile("old.dxf", TextDxf(version));
+            Assert.IsTrue(CADability.DXF.Import.CanImportVersion(dxf, out _),
+                "DXF R11/R12 must be readable");
         }
 
         [TestMethod]

@@ -113,10 +113,18 @@ namespace CADability.DXF
             doc = document;
         }
 
-        // The drawing versions ACadSharp is documented to read, see the compatibility table in
-        // https://github.com/DomCR/ACadSharp#compatible-dwgdxf-versions. DXF reaches back to
-        // R11/R12, DWG only to R14; anything older has to be converted by the writing
-        // application before CADability gets to see it.
+        // The drawing versions ACadSharp can read. DXF reaches back to R11/R12, DWG to R13;
+        // anything older has to be converted by the writing application before CADability gets
+        // to see it - DwgReader throws CadNotSupportedException for R12 and earlier, there is no
+        // code for those at all.
+        // The compatibility table in https://github.com/DomCR/ACadSharp#compatible-dwgdxf-versions
+        // marks R13 (AC1012) as unreadable, but that is the writer's limit showing through:
+        // DwgWriter does throw for AC1012, DwgReader does not. Its R13 path is implemented, not
+        // aliased to R14 - the header and object readers carry ~40 R13/R14 branches and two spots
+        // that separate R13 from R14 (the R14-only byte in dictionaries, the R14+ leader offset).
+        // It is untested though: ACadSharp ships no R13 sample, so nothing exercises it. Letting
+        // it through costs nothing when it does not work, because the caller reports the reader's
+        // exception either way, and gains the import when it does.
         private static readonly ACadVersion[] readableDxfVersions =
         {
             ACadVersion.AC1009, // R11, R12
@@ -132,6 +140,7 @@ namespace CADability.DXF
 
         private static readonly ACadVersion[] readableDwgVersions =
         {
+            ACadVersion.AC1012, // R13 - implemented but not covered by any ACadSharp test
             ACadVersion.AC1014, // R14
             ACadVersion.AC1015, // 2000, 2000i, 2002
             ACadVersion.AC1018, // 2004, 2005, 2006
