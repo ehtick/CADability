@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 18
-VisualStudioVersion = 18.7.11919.86 stable
+VisualStudioVersion = 18.7.11919.86
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "CADability", "CADability\CADability.csproj", "{B234840A-1F1C-4C53-9789-4EEB82349F98}"
 EndProject
@@ -94,5 +94,9 @@ Global
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {A0488D96-CE5E-4E02-8E1A-0D54ECB5FF81}
+	EndGlobalSection
+	GlobalSection(SharedMSBuildProjectFiles) = preSolution
+		external\ACadSharp\src\CSUtilities\CSMath\CSMath.projitems*{cb24b9ac-5004-43b1-b98e-19eb37dc871e}*SharedItemsImports = 5
+		external\ACadSharp\src\CSUtilities\CSUtilities\CSUtilities.projitems*{cb24b9ac-5004-43b1-b98e-19eb37dc871e}*SharedItemsImports = 5
 	EndGlobalSection
 EndGlobal
