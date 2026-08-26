@@ -556,7 +556,7 @@ namespace CADability.DXF
             GeoVector normalVec = GeoVector(ellipse.Normal);
             GeoVector minorDir = normalVec ^ majorAxisVec;
             if (!minorDir.IsNullVector()) minorDir.Norm();
-            GeoVector minorAxisVec = minorDir * (majorAxisVec.Length * ellipse.RadiusRatio);
+            GeoVector minorAxisVec = (majorAxisVec.Length * ellipse.RadiusRatio) * minorDir;
             e.SetEllipseCenterAxis(GeoPoint(ellipse.Center), majorAxisVec, minorAxisVec);
             e.StartParameter = ellipse.StartParameter;
             e.SweepParameter = ellipse.EndParameter - ellipse.StartParameter;
