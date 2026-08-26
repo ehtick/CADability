@@ -1,5 +1,9 @@
 name: Publish NuGet Package
 on:
+  # Manual start from the Actions tab or 'gh workflow run nuget.yml --ref <branch|tag>'.
+  # Packs whatever version the csproj carries on the chosen ref, so a release that the
+  # tag push did not pick up can be published without deleting and re-pushing the tag.
+  workflow_dispatch:
   push:
     tags:
       - 'v*' # Trigger on version tags like v1.0.0
