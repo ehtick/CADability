@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -113,9 +113,154 @@ namespace CADability.DXF
             doc = document;
         }
 
+        // The drawing versions ACadSharp is documented to read, see the compatibility table in
+        // https://github.com/DomCR/ACadSharp#compatible-dwgdxf-versions. DXF reaches back to
+        // R11/R12, DWG only to R14; anything older has to be converted by the writing
+        // application before CADability gets to see it.
+        private static readonly ACadVersion[] readableDxfVersions =
+        {
+            ACadVersion.AC1009, // R11, R12
+            ACadVersion.AC1012, // R13
+            ACadVersion.AC1014, // R14
+            ACadVersion.AC1015, // 2000, 2000i, 2002
+            ACadVersion.AC1018, // 2004, 2005, 2006
+            ACadVersion.AC1021, // 2007, 2008, 2009
+            ACadVersion.AC1024, // 2010, 2011, 2012
+            ACadVersion.AC1027, // 2013 - 2017
+            ACadVersion.AC1032, // 2018 - 2020
+        };
+
+        private static readonly ACadVersion[] readableDwgVersions =
+        {
+            ACadVersion.AC1014, // R14
+            ACadVersion.AC1015, // 2000, 2000i, 2002
+            ACadVersion.AC1018, // 2004, 2005, 2006
+            ACadVersion.AC1021, // 2007, 2008, 2009
+            ACadVersion.AC1024, // 2010, 2011, 2012
+            ACadVersion.AC1027, // 2013 - 2017
+            ACadVersion.AC1032, // 2018 - 2020
+        };
+
+        private static readonly byte[] acadVerMarker = Encoding.ASCII.GetBytes("$ACADVER");
+
+        /// <summary>
+        /// Tells whether <see cref="Project.ReadFromFile(string, string)"/> can read this DXF or
+        /// DWG file, judged by the drawing version stored in the file itself. Which of the two
+        /// formats it is comes from the content, not from the extension. Only the head of the
+        /// file is looked at, so this is cheap enough to call before every import.
+        /// </summary>
+        /// <param name="fileName">Path of the DXF or DWG file to test</param>
+        /// <returns>true if the version is one that can be read</returns>
+        /// <exception cref="IOException">The file cannot be opened at all, which is not a
+        /// version problem and therefore not reported as an unsupported version.</exception>
         public static bool CanImportVersion(string fileName)
         {
-            return true; // ACadSharp reads all DXF versions (R12 through 2018)
+            return CanImportVersion(fileName, out _);
+        }
+
+        /// <summary>
+        /// Same as <see cref="CanImportVersion(string)"/>, but also reports the version found in
+        /// the file so that a caller can name it in an error message.
+        /// </summary>
+        /// <param name="fileName">Path of the DXF or DWG file to test</param>
+        /// <param name="versionName">Receives the drawing version found in the file, e.g.
+        /// "AC1015" for AutoCAD 2000, or an empty string when the file carries no version</param>
+        /// <returns>true if the version is one that can be read</returns>
+        /// <exception cref="IOException">The file cannot be opened at all, which is not a
+        /// version problem and therefore not reported as an unsupported version.</exception>
+        public static bool CanImportVersion(string fileName, out string versionName)
+        {
+            ACadVersion version = GetDrawingVersion(fileName, out bool isDwg);
+            versionName = version == ACadVersion.Unknown ? "" : version.ToString().Replace('_', '.');
+
+            if (isDwg) return Array.IndexOf(readableDwgVersions, version) >= 0;
+
+            // A DXF without a $ACADVER header still gets its chance: ACadSharp falls back to a
+            // generic reader for those instead of refusing them.
+            if (version == ACadVersion.Unknown) return true;
+            return Array.IndexOf(readableDxfVersions, version) >= 0;
+        }
+
+        /// <summary>
+        /// Reads the drawing version out of the head of a DXF or DWG file. A DWG starts with its
+        /// six character version tag, a DXF carries the tag as the value of the $ACADVER header
+        /// variable - as plain ASCII in the text and in the binary encoding alike.
+        /// </summary>
+        private static ACadVersion GetDrawingVersion(string fileName, out bool isDwg)
+        {
+            isDwg = false;
+            byte[] head = ReadFileHead(fileName, 0x20000);
+            if (head.Length < 6) return ACadVersion.Unknown;
+
+            // "AC" followed by a digit: a DWG version tag. No DXF starts like that, a text DXF
+            // begins with a group code and a binary one with "AutoCAD Binary DXF".
+            if (head[0] == (byte)'A' && head[1] == (byte)'C' && head[2] >= (byte)'0' && head[2] <= (byte)'9')
+            {
+                isDwg = true;
+                return VersionFromName(Encoding.ASCII.GetString(head, 0, 6));
+            }
+
+            int pos = IndexOf(head, acadVerMarker);
+            if (pos < 0) return ACadVersion.Unknown;
+            return VersionAfterMarker(head, pos + acadVerMarker.Length);
+        }
+
+        // Scans forward from the $ACADVER marker for the version tag. What sits in between is the
+        // group code - "  1" in a text DXF, two non printable bytes in a binary one - and is
+        // skipped over because a version tag is at least four characters long.
+        private static ACadVersion VersionAfterMarker(byte[] raw, int start)
+        {
+            int limit = Math.Min(raw.Length, start + 64);
+            int i = start;
+            while (i < limit)
+            {
+                if (!IsVersionChar(raw[i])) { i++; continue; }
+
+                int tokenStart = i;
+                while (i < limit && IsVersionChar(raw[i])) i++;
+                if (i - tokenStart >= 4)
+                {
+                    ACadVersion version = VersionFromName(Encoding.ASCII.GetString(raw, tokenStart, i - tokenStart));
+                    if (version != ACadVersion.Unknown) return version;
+                }
+            }
+            return ACadVersion.Unknown;
+        }
+
+        private static bool IsVersionChar(byte b)
+        {
+            return (b >= (byte)'0' && b <= (byte)'9')
+                || (b >= (byte)'A' && b <= (byte)'Z')
+                || (b >= (byte)'a' && b <= (byte)'z')
+                || b == (byte)'.' || b == (byte)'_';
+        }
+
+        // The names in the files ("AC1015", "AC1.50") differ from the enum members only in the
+        // separator, which cannot be a dot in C#.
+        private static ACadVersion VersionFromName(string name)
+        {
+            if (Enum.TryParse(name.Replace('.', '_').ToUpperInvariant(), out ACadVersion version)
+                && Enum.IsDefined(typeof(ACadVersion), version))
+                return version;
+            return ACadVersion.Unknown;
+        }
+
+        private static byte[] ReadFileHead(string fileName, int maxBytes)
+        {
+            using (FileStream fs = new FileStream(fileName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            {
+                int count = (int)Math.Min(maxBytes, fs.Length);
+                byte[] buffer = new byte[count];
+                int read = 0;
+                while (read < count)
+                {
+                    int n = fs.Read(buffer, read, count - read);
+                    if (n <= 0) break;
+                    read += n;
+                }
+                if (read < count) Array.Resize(ref buffer, read);
+                return buffer;
+            }
         }
 
         // Converts one entity and adds the result to the model. A failing entity is traced
