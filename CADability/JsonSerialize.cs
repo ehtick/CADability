@@ -1349,7 +1349,12 @@ namespace CADability
                 WriteProperty("$Type");
                 WriteString(value.GetType().Name);
                 WriteProperty("$Value");
-                if (value is double) WriteString(((double)value).ToString(NumberFormatInfo.InvariantInfo));
+                //G17 rather than the default: without a format a double is written with 15
+                //significant digits on .NET Framework and does not survive being read back.
+                //G17 always does, on .NET Framework and on .NET alike - unlike "R", which has
+                //known round trip failures for double on .NET Framework.
+                if (value is double dbl) WriteString(dbl.ToString("G17", NumberFormatInfo.InvariantInfo));
+                else if (value is float flt) WriteString(flt.ToString("G9", NumberFormatInfo.InvariantInfo));
                 else WriteString(value.ToString());
                 EndObject();
 
@@ -1510,9 +1515,19 @@ namespace CADability
                     if ((bool)value) outStream.Write("true");
                     else outStream.Write("false");
                 }
+                else if (value is double dbl)
+                {
+                    //See the note above: the default format loses digits on .NET Framework, and
+                    //this is the path every coordinate of every geometry travels through.
+                    outStream.Write(dbl.ToString("G17", NumberFormatInfo.InvariantInfo));
+                }
+                else if (value is float flt)
+                {
+                    outStream.Write(flt.ToString("G9", NumberFormatInfo.InvariantInfo));
+                }
                 else
                 {
-                    outStream.Write(value); // Boolean, (S)Byte, (U)IntNn, Single, Double
+                    outStream.Write(value); // Boolean, (S)Byte, (U)IntNn
                 }
             }
             else if (value is string)
