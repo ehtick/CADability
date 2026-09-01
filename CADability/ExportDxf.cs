@@ -37,6 +37,34 @@ namespace CADability.DXF
             createdLinePatterns = new Dictionary<CADability.Attribute.LinePattern, ACadSharp.Tables.LineType>();
             createdTextStyles = new Dictionary<string, ACadSharp.Tables.TextStyle>();
             createdBlockNames = new HashSet<string>();
+            if (version <= ACadVersion.AC1015)
+                RemovePostR2000Objects();
+        }
+
+        /// <summary>
+        /// ACadSharp's CadDocument always creates default objects for features that were
+        /// introduced after AutoCAD 2000 (scale list, multileader/table styles, visual styles,
+        /// book colors, field lists, PDF definitions), regardless of the target version.
+        /// Strict readers based on the ODA libraries (DraftSight, QCAD Professional, many CAM
+        /// systems) refuse AC1015 files containing these objects, while AutoCAD 2000 itself
+        /// never writes them. Remove them for AC1015 and older targets. The corresponding
+        /// CLASS declarations are harmless to those readers and are left untouched.
+        /// </summary>
+        private void RemovePostR2000Objects()
+        {
+            string[] postR2000Entries = new string[]
+            {
+                ACadSharp.Objects.CadDictionary.AcadColor,          //DBCOLOR, AutoCAD 2004
+                ACadSharp.Objects.CadDictionary.AcadMaterial,       //MATERIAL, AutoCAD 2007
+                ACadSharp.Objects.CadDictionary.AcadMLeaderStyle,   //MLEADERSTYLE, AutoCAD 2008
+                ACadSharp.Objects.CadDictionary.AcadScaleList,      //SCALE, AutoCAD 2008
+                ACadSharp.Objects.CadDictionary.AcadTableStyle,     //TABLESTYLE, AutoCAD 2005
+                ACadSharp.Objects.CadDictionary.AcadVisualStyle,    //VISUALSTYLE, AutoCAD 2007
+                ACadSharp.Objects.CadDictionary.AcadFieldList,      //FIELDLIST, AutoCAD 2005
+                ACadSharp.Objects.CadDictionary.AcadPdfDefinitions, //PDFDEFINITION, AutoCAD 2010
+            };
+            foreach (string key in postR2000Entries)
+                doc.RootDictionary.Remove(key);
         }
 
         public byte[] WriteToByteArray(Project toExport)
