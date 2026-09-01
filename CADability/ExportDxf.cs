@@ -693,37 +693,54 @@ namespace CADability.DXF
             }
             else
             {
-                // True ellipse
-                GeoVector normal;
-                double startParam, endParam;
-                GeoVector majorDir;
-
-                if (elli.IsArc && elli.SweepParameter < 0)
+                // True ellipse. DXF group 11 must carry the real major axis (RadiusRatio ≤ 1),
+                // readers derive the minor axis direction as Normal × MajorAxis, and the arc
+                // always runs counterclockwise around the normal from StartParameter to
+                // EndParameter.
+                double majorRadius = elli.MajorRadius;
+                double minorRadius = elli.MinorRadius;
+                GeoVector majorDir = elli.Plane.DirectionX;
+                double paramOffset = 0.0;
+                if (minorRadius > majorRadius)
                 {
-                    // Clockwise arc: flip normal and swap start/end
-                    normal = -elli.Plane.Normal;
-                    majorDir = elli.Plane.DirectionX;
-                    double start = elli.StartParameter + elli.SweepParameter;
-                    while (start < 0) start += 2.0 * Math.PI;
-                    startParam = start;
-                    endParam = elli.StartParameter;
-                    if (endParam < startParam) endParam += 2.0 * Math.PI;
+                    // The longer radius sits on DirectionY: use that axis as the DXF major
+                    // axis. In the DXF parameterization this shifts every parameter by -π/2
+                    // (cos(t-π/2) = sin(t), sin(t-π/2) = -cos(t), minor dir = Normal × Y = -X).
+                    majorDir = elli.Plane.DirectionY;
+                    double tmp = majorRadius; majorRadius = minorRadius; minorRadius = tmp;
+                    paramOffset = -Math.PI / 2.0;
+                }
+
+                double startParam, endParam;
+                if (elli.IsArc)
+                {
+                    // A clockwise arc (negative sweep) covers the same point set as the
+                    // counterclockwise arc from its end parameter to its start parameter, so
+                    // only the parameters are exchanged. The normal must stay the ellipse's
+                    // own normal: writing the flipped normal (as done before) mirrors the arc
+                    // across the major axis, which shattered logos made of elliptical arcs.
+                    startParam = elli.SweepParameter < 0
+                        ? elli.StartParameter + elli.SweepParameter
+                        : elli.StartParameter;
+                    endParam = startParam + Math.Abs(elli.SweepParameter);
+                    startParam += paramOffset;
+                    endParam += paramOffset;
+                    while (startParam < 0.0) { startParam += 2.0 * Math.PI; endParam += 2.0 * Math.PI; }
+                    while (startParam >= 2.0 * Math.PI) { startParam -= 2.0 * Math.PI; endParam -= 2.0 * Math.PI; }
                 }
                 else
                 {
-                    normal = elli.Plane.Normal;
-                    majorDir = elli.Plane.DirectionX;
-                    startParam = elli.IsArc ? elli.StartParameter : 0.0;
-                    endParam = elli.IsArc ? elli.StartParameter + elli.SweepParameter : 2.0 * Math.PI;
+                    startParam = 0.0;
+                    endParam = 2.0 * Math.PI;
                 }
 
-                GeoVector majorAxisEnd = elli.MajorRadius * majorDir.Normalized;
+                GeoVector majorAxisEnd = majorRadius * majorDir.Normalized;
                 return new ACadSharp.Entities.Ellipse
                 {
                     Center = ToXYZ(elli.Center),
                     MajorAxisEndPoint = ToXYZ(majorAxisEnd),
-                    RadiusRatio = elli.MinorRadius / elli.MajorRadius,
-                    Normal = ToXYZ(normal),
+                    RadiusRatio = minorRadius / majorRadius,
+                    Normal = ToXYZ(elli.Plane.Normal),
                     StartParameter = startParam,
                     EndParameter = endParam
                 };
