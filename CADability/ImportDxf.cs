@@ -1086,6 +1086,7 @@ namespace CADability.DXF
         private ICurve BulgeToArc(GeoPoint startPt, GeoPoint endPt, double bulge, Plane plane)
         {
             // DXF bulge = tan(includedAngle/4); positive = CCW, negative = CW.
+            // |bulge| > 1 means the arc spans more than a half circle.
             double angle = 4.0 * Math.Atan(Math.Abs(bulge));
             double chordLen = (endPt - startPt).Length;
             if (chordLen < Precision.eps) return null;
@@ -1095,6 +1096,9 @@ namespace CADability.DXF
             GeoVector perpDir = (plane.Normal ^ (endPt - startPt).Normalized).Normalized;
             // d = distance from chord midpoint to arc center
             double d = Math.Sqrt(Math.Max(0, radius * radius - (chordLen / 2.0) * (chordLen / 2.0)));
+            // An arc of more than 180° wraps around its center: the center then lies on the
+            // opposite side of the chord (seen from the arc's bulge side).
+            if (angle > Math.PI) d = -d;
             // CCW (bulge > 0): center is to the left of the chord (Normal × chordDir)
             // CW  (bulge < 0): center is to the right
             GeoPoint center = bulge > 0
