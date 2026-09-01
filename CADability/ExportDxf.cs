@@ -704,23 +704,35 @@ namespace CADability.DXF
 
         private void SetColorOnEntity(Entity entity, int argb)
         {
-            System.Drawing.Color clr = System.Drawing.Color.FromArgb(argb);
-            if (argb == System.Drawing.Color.White.ToArgb() || argb == System.Drawing.Color.Black.ToArgb())
-                entity.Color = ACadSharp.Color.ByLayer;
-            else
-                entity.Color = new ACadSharp.Color(clr.R, clr.G, clr.B);
+            entity.Color = ToAcadColor(System.Drawing.Color.FromArgb(argb));
+        }
+
+        /// <summary>
+        /// Converts a GDI color to an ACadSharp color. White and black become ByLayer.
+        /// Colors that exactly match an entry of the AutoCAD Color Index palette are written
+        /// as indexed colors (DXF group code 62, e.g. yellow -> 2): indexed colors are
+        /// understood by every DXF reader, while true colors (group code 420) are ignored
+        /// by older readers and many CAM systems (e.g. Trumpf TruTops), which would then
+        /// fall back to the layer color and lose the technological meaning of the color.
+        /// </summary>
+        private static ACadSharp.Color ToAcadColor(Color clr)
+        {
+            if (clr.ToArgb() == Color.White.ToArgb() || clr.ToArgb() == Color.Black.ToArgb())
+                return ACadSharp.Color.ByLayer;
+            for (short i = 1; i < 256; i++)
+            {
+                ReadOnlySpan<byte> rgb = ACadSharp.Color.GetIndexRGB((byte)i);
+                if (rgb[0] == clr.R && rgb[1] == clr.G && rgb[2] == clr.B)
+                    return new ACadSharp.Color(i);
+            }
+            return new ACadSharp.Color(clr.R, clr.G, clr.B);
         }
 
         private void SetAttributes(Entity entity, IGeoObject go)
         {
             if (go is IColorDef cd && cd.ColorDef != null)
             {
-                System.Drawing.Color clr = cd.ColorDef.Color;
-                if (clr.ToArgb() == System.Drawing.Color.White.ToArgb() ||
-                    clr.ToArgb() == System.Drawing.Color.Black.ToArgb())
-                    entity.Color = ACadSharp.Color.ByLayer;
-                else
-                    entity.Color = new ACadSharp.Color(clr.R, clr.G, clr.B);
+                entity.Color = ToAcadColor(cd.ColorDef.Color);
             }
             if (go.Layer != null)
                 entity.Layer = GetOrCreateLayer(go.Layer);
