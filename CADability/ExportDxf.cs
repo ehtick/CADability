@@ -742,17 +742,36 @@ namespace CADability.DXF
         /// understood by every DXF reader, while true colors (group code 420) are ignored
         /// by older readers and many CAM systems (e.g. Trumpf TruTops), which would then
         /// fall back to the layer color and lose the technological meaning of the color.
+        /// When the target version is AC1015 or older - a format that does not support true
+        /// colors at all - colors without an exact palette match are converted to the nearest
+        /// ACI color (squared RGB distance), exactly as AutoCAD 2000 itself stores them. This
+        /// matters for GDI named colors like Color.Green (0,128,0), which are close to but not
+        /// identical with a palette entry and would otherwise be invisible to ACI-only readers.
+        /// Newer target versions keep the exact RGB value as a true color.
         /// </summary>
-        private static ACadSharp.Color ToAcadColor(Color clr)
+        private ACadSharp.Color ToAcadColor(Color clr)
         {
             if (clr.ToArgb() == Color.White.ToArgb() || clr.ToArgb() == Color.Black.ToArgb())
                 return ACadSharp.Color.ByLayer;
+            int bestIndex = 7;
+            int bestDist = int.MaxValue;
             for (short i = 1; i < 256; i++)
             {
                 ReadOnlySpan<byte> rgb = ACadSharp.Color.GetIndexRGB((byte)i);
-                if (rgb[0] == clr.R && rgb[1] == clr.G && rgb[2] == clr.B)
+                int dr = rgb[0] - clr.R;
+                int dg = rgb[1] - clr.G;
+                int db = rgb[2] - clr.B;
+                int dist = dr * dr + dg * dg + db * db;
+                if (dist == 0)
                     return new ACadSharp.Color(i);
+                if (dist < bestDist)
+                {
+                    bestDist = dist;
+                    bestIndex = i;
+                }
             }
+            if (doc.Header.Version <= ACadVersion.AC1015)
+                return new ACadSharp.Color((short)bestIndex);
             return new ACadSharp.Color(clr.R, clr.G, clr.B);
         }
 
