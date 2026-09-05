@@ -572,15 +572,9 @@ namespace CADability.GeoObject
         public Path2D[] GetOutline2D(string fontName, int fontStyle, char c, out double width)
         {
             GraphicsPath path = new GraphicsPath();
-            FontFamily ff;
-            if (Text.FontFamilyNames.Contains(fontName.ToUpper()))
-            {
-                ff = new FontFamily(fontName);
-            }
-            else
-            {
-                ff = new FontFamily(System.Drawing.Text.GenericFontFamilies.SansSerif);
-            }
+            // FontFamily wraps an unmanaged GDI+ object: dispose it at the end of the block instead of
+            // leaving it to the finalizer (this code runs for every text on every repaint)
+            using FontFamily ff = Text.FontFamilyNames.Contains(fontName.ToUpper()) ? new FontFamily(fontName) : new FontFamily(System.Drawing.Text.GenericFontFamilies.SansSerif);
             StringFormat sf = StringFormat.GenericTypographic.Clone() as StringFormat;
             sf.LineAlignment = StringAlignment.Near;
             sf.Alignment = StringAlignment.Near;
@@ -595,7 +589,7 @@ namespace CADability.GeoObject
             int fs = fontStyle;
             int em = ff.GetEmHeight((FontStyle)fs);
             if (em == 0) em = 1000;
-            Font font = new Font(ff, em, (FontStyle)fs, GraphicsUnit.Pixel);
+            using Font font = new Font(ff, em, (FontStyle)fs, GraphicsUnit.Pixel);
             IntPtr hfont = font.ToHfont();
             IntPtr oldfont = Gdi.SelectObject(hDC, hfont);
             Gdi.ABC[] abc = new Gdi.ABC[1];
@@ -1189,15 +1183,9 @@ namespace CADability.GeoObject
             {
                 try
                 {
-                    FontFamily ff;
-                    if (FontFamilyNames.Contains(fontName.ToUpper()))
-                    {
-                        ff = new FontFamily(fontName);
-                    }
-                    else
-                    {
-                        ff = new FontFamily(System.Drawing.Text.GenericFontFamilies.SansSerif);
-                    }
+                    // FontFamily wraps an unmanaged GDI+ object: dispose it at the end of the block instead of
+                    // leaving it to the finalizer (this code runs for every text on every repaint)
+                    using FontFamily ff = FontFamilyNames.Contains(fontName.ToUpper()) ? new FontFamily(fontName) : new FontFamily(System.Drawing.Text.GenericFontFamilies.SansSerif);
                     FontStyle fs = fontStyle;
                     if (!ff.IsStyleAvailable(fs))
                     {
@@ -1218,12 +1206,13 @@ namespace CADability.GeoObject
                     emAscDescFactor = (double)(desc) / (double)asc;
                     emDescDiff = (double)(em - asc) / (double)em;
                     this.desc = (double)(desc) / (double)em;
-                    using (Graphics graphics = Graphics.FromImage(new Bitmap(1000, 100)))
+                    // the bitmap only serves as a device for measuring; it must be disposed as well, otherwise
+                    // 400 KB of unmanaged GDI+ memory stay alive per measured text until the finalizer runs
+                    using (Bitmap measureBitmap = new Bitmap(1000, 100))
+                    using (Graphics graphics = Graphics.FromImage(measureBitmap))
+                    using (Font font = new Font(fontName, (float)(glyphDirection.Length), GraphicsUnit.Pixel))
                     {
-                        using (Font font = new Font(fontName, (float)(glyphDirection.Length), GraphicsUnit.Pixel))
-                        {
-                            sizeExtent = graphics.MeasureString(textString, font);
-                        }
+                        sizeExtent = graphics.MeasureString(textString, font);
                     }
                     isValidExtent = true;
                 }
@@ -1443,15 +1432,9 @@ namespace CADability.GeoObject
             if (Bold) fs |= (int)FontStyle.Bold;
             if (Strikeout) fs |= (int)FontStyle.Strikeout;
             PlaneSurface pls = new PlaneSurface(location, lineDirection, glyphDirection, lineDirection ^ glyphDirection);
-            FontFamily ff;
-            if (FontFamilyNames.Contains(fontName.ToUpper()))
-            {
-                ff = new FontFamily(fontName);
-            }
-            else
-            {
-                ff = new FontFamily(System.Drawing.Text.GenericFontFamilies.SansSerif);
-            }
+            // FontFamily wraps an unmanaged GDI+ object: dispose it at the end of the block instead of
+            // leaving it to the finalizer (this code runs for every text on every repaint)
+            using FontFamily ff = FontFamilyNames.Contains(fontName.ToUpper()) ? new FontFamily(fontName) : new FontFamily(System.Drawing.Text.GenericFontFamilies.SansSerif);
             if (!ff.IsStyleAvailable((FontStyle)fs))
             {
                 if (ff.IsStyleAvailable(FontStyle.Regular)) fs = (int)FontStyle.Regular;
@@ -1606,15 +1589,9 @@ namespace CADability.GeoObject
             if (Bold) fs |= (int)FontStyle.Bold;
             if (Strikeout) fs |= (int)FontStyle.Strikeout;
             PlaneSurface pls = new PlaneSurface(location, lineDirection, glyphDirection, lineDirection ^ glyphDirection);
-            FontFamily ff;
-            if (FontFamilyNames.Contains(fontName.ToUpper()))
-            {
-                ff = new FontFamily(fontName);
-            }
-            else
-            {
-                ff = new FontFamily(System.Drawing.Text.GenericFontFamilies.SansSerif);
-            }
+            // FontFamily wraps an unmanaged GDI+ object: dispose it at the end of the block instead of
+            // leaving it to the finalizer (this code runs for every text on every repaint)
+            using FontFamily ff = FontFamilyNames.Contains(fontName.ToUpper()) ? new FontFamily(fontName) : new FontFamily(System.Drawing.Text.GenericFontFamilies.SansSerif);
             if (!ff.IsStyleAvailable((FontStyle)fs))
             {
                 if (ff.IsStyleAvailable(FontStyle.Regular)) fs = (int)FontStyle.Regular;
@@ -1747,15 +1724,9 @@ namespace CADability.GeoObject
             if (Bold) fs |= (int)FontStyle.Bold;
             if (Strikeout) fs |= (int)FontStyle.Strikeout;
             PlaneSurface pls = new PlaneSurface(location, lineDirection, glyphDirection, lineDirection ^ glyphDirection);
-            FontFamily ff;
-            if (FontFamilyNames.Contains(fontName.ToUpper()))
-            {
-                ff = new FontFamily(fontName);
-            }
-            else
-            {
-                ff = new FontFamily(System.Drawing.Text.GenericFontFamilies.SansSerif);
-            }
+            // FontFamily wraps an unmanaged GDI+ object: dispose it at the end of the block instead of
+            // leaving it to the finalizer (this code runs for every text on every repaint)
+            using FontFamily ff = FontFamilyNames.Contains(fontName.ToUpper()) ? new FontFamily(fontName) : new FontFamily(System.Drawing.Text.GenericFontFamilies.SansSerif);
             if (!ff.IsStyleAvailable((FontStyle)fs))
             {
                 if (ff.IsStyleAvailable(FontStyle.Regular)) fs = (int)FontStyle.Regular;
@@ -2157,15 +2128,9 @@ namespace CADability.GeoObject
                 {   // bei sehr kleinen lineDirection u.s.w. gibts hier ein Problem
                     pls = new PlaneSurface(location, GeoVector.XAxis, GeoVector.YAxis, GeoVector.ZAxis);
                 }
-                FontFamily ff;
-                if (FontFamilyNames.Contains(fontName.ToUpper()))
-                {
-                    ff = new FontFamily(fontName);
-                }
-                else
-                {
-                    ff = new FontFamily(System.Drawing.Text.GenericFontFamilies.SansSerif);
-                }
+                // FontFamily wraps an unmanaged GDI+ object: dispose it at the end of the block instead of
+                // leaving it to the finalizer (this code runs for every text on every repaint)
+                using FontFamily ff = FontFamilyNames.Contains(fontName.ToUpper()) ? new FontFamily(fontName) : new FontFamily(System.Drawing.Text.GenericFontFamilies.SansSerif);
                 if (!ff.IsStyleAvailable((FontStyle)fs))
                 {
                     if (ff.IsStyleAvailable(FontStyle.Regular)) fs = (int)FontStyle.Regular;
@@ -2809,15 +2774,9 @@ namespace CADability.GeoObject
                     if (Strikeout) fs |= (int)FontStyle.Strikeout;
                     List<IGeoObject> res = new List<IGeoObject>();
                     PlaneSurface pls = new PlaneSurface(location, lineDirection, glyphDirection, lineDirection ^ glyphDirection);
-                    FontFamily ff;
-                    if (FontFamilyNames.Contains(fontName.ToUpper()))
-                    {
-                        ff = new FontFamily(fontName);
-                    }
-                    else
-                    {
-                        ff = new FontFamily(System.Drawing.Text.GenericFontFamilies.SansSerif);
-                    }
+                    // FontFamily wraps an unmanaged GDI+ object: dispose it at the end of the block instead of
+                    // leaving it to the finalizer (this code runs for every text on every repaint)
+                    using FontFamily ff = FontFamilyNames.Contains(fontName.ToUpper()) ? new FontFamily(fontName) : new FontFamily(System.Drawing.Text.GenericFontFamilies.SansSerif);
                     if (!ff.IsStyleAvailable((FontStyle)fs))
                     {
                         if (ff.IsStyleAvailable(FontStyle.Regular)) fs = (int)FontStyle.Regular;
@@ -2884,15 +2843,9 @@ namespace CADability.GeoObject
                 if (Strikeout) fs |= (int)FontStyle.Strikeout;
                 List<IGeoObject> res = new List<IGeoObject>();
                 PlaneSurface pls = new PlaneSurface(location, lineDirection, glyphDirection, lineDirection ^ glyphDirection);
-                FontFamily ff;
-                if (FontFamilyNames.Contains(fontName.ToUpper()))
-                {
-                    ff = new FontFamily(fontName);
-                }
-                else
-                {
-                    ff = new FontFamily(System.Drawing.Text.GenericFontFamilies.SansSerif);
-                }
+                // FontFamily wraps an unmanaged GDI+ object: dispose it at the end of the block instead of
+                // leaving it to the finalizer (this code runs for every text on every repaint)
+                using FontFamily ff = FontFamilyNames.Contains(fontName.ToUpper()) ? new FontFamily(fontName) : new FontFamily(System.Drawing.Text.GenericFontFamilies.SansSerif);
                 if (!ff.IsStyleAvailable((FontStyle)fs))
                 {
                     if (ff.IsStyleAvailable(FontStyle.Regular)) fs = (int)FontStyle.Regular;

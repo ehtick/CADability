@@ -134,27 +134,36 @@ namespace CADability.Forms
             public IntPtr deviceContext;
             public void AssertCharacter(char c)
             {
-                CharacterDisplayList cdl;
-                if (!TryGetValue(c, out cdl))
+                // Characters whose outline could not be created are cached as well (displaylist == null),
+                // otherwise the failing attempt would be repeated on every repaint.
+                if (ContainsKey(c)) return;
+                // wglUseFontOutlines only works with TrueType outlines. For bitmap fonts, some OpenType (CFF)
+                // fonts or a font name that GDI substitutes by a raster font it fails for every character.
+                // The previous implementation created a second HFONT in that case without deleting the first
+                // one and never cached the failure, so every repaint leaked one GDI font handle per character
+                // until the process ran into the GDI handle limit (visible as "invalid parameter" errors in
+                // unrelated GDI+ code, e.g. tooltips).
+                IntPtr fnt = Gdi.CreateFont(100, 0, 0, 0, 0, false, false, false, 1, 0, 0, 0, 0, fontName);
+                IntPtr oldfont = Gdi.SelectObject(deviceContext, fnt);
+                try
                 {
-                    IntPtr fnt = Gdi.CreateFont(100, 0, 0, 0, 0, false, false, false, 1, 0, 0, 0, 0, fontName);
-                    IntPtr oldfont = Gdi.SelectObject(deviceContext, fnt);
                     Gdi.GLYPHMETRICSFLOAT[] glyphmetrics = new Gdi.GLYPHMETRICSFLOAT[1];
                     OpenGlList list = new OpenGlList(fontName + "-" + c);
+                    CharacterDisplayList cdl = new CharacterDisplayList();
                     if (Wgl.wglUseFontOutlines(deviceContext, (int)c, 1, list.ListNumber, 20.0f, 0.0f, Wgl.WGL_FONT_POLYGONS, glyphmetrics))
                     {
-#if DEBUG
-                        //System.Diagnostics.Trace.WriteLine("wglUseFontOutlines success: " + deviceContext.ToString() + ", " + c);
-#endif
                         cdl.glyphmetrics = glyphmetrics[0];
                         cdl.displaylist = list;
-                        this[c] = cdl;
                     }
                     else
                     {
-                        fnt = Gdi.CreateFont(-100, 0, 0, 0, 0, false, false, false, 1, 0, 0, 0, 0, fontName);
-                        bool dbg = Wgl.wglUseFontOutlines(deviceContext, (int)c, 1, list.ListNumber, 20.0f, 0.0f, Wgl.WGL_FONT_POLYGONS, glyphmetrics);
+                        list.Delete(); // nothing was compiled into the list, release the list number right away
+                        cdl.displaylist = null; // the character is skipped when the text is drawn
                     }
+                    this[c] = cdl;
+                }
+                finally
+                {
                     Gdi.SelectObject(deviceContext, oldfont);
                     Gdi.DeleteObject(fnt);
                 }
@@ -1480,7 +1489,7 @@ namespace CADability.Forms
             for (int i = 0; i < textString.Length; ++i)
             {
                 CharacterDisplayList cdl;
-                if (fdl.TryGetValue(textString[i], out cdl))
+                if (fdl.TryGetValue(textString[i], out cdl) && cdl.displaylist != null)
                 {
                     Gl.glCallList(cdl.displaylist.ListNumber);
                     ++dbgNumChar;
