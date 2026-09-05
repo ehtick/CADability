@@ -148,7 +148,17 @@ namespace CADability
 					if (!data.CancellationToken.IsCancellationRequested) //If canceled during waiting for the lock I end it immediately here.
 					{
 						// hier wird die eigentliche Arbeit gemacht
-						go.PrepareDisplayList(data.Precision);
+						try
+						{
+							go.PrepareDisplayList(data.Precision);
+						}
+						catch (Exception e) when (!(e is ThreadAbortException))
+						{
+							// An unhandled exception on a thread pool thread terminates the process without any
+							// message. Triangulating degenerate geometry can throw; the object then keeps its
+							// previous display list and is prepared again on the UI thread when it is painted.
+							System.Diagnostics.Trace.WriteLine("Model.RecalcGeoObject: " + e.Message);
+						}
 					}
 				}
 			}
@@ -276,52 +286,64 @@ namespace CADability
 			DoBackgroundRecalcDisplayListData data = (DoBackgroundRecalcDisplayListData)parameter;
 			if (runningThreads == null) runningThreads = new HashSet<string>();
 			backgroundRecalcPrecision = data.Precision;
-			for (int i = 0; i < geoObjects.Count; ++i)
+			try
 			{
-				if (data.CancellationToken.IsCancellationRequested)
+				for (int i = 0; i < geoObjects.Count; ++i)
 				{
-					break;
-				}
-				// Beim zufügen und entfernen muss diese Aktion abgebrochen werden, damit man nicht über den Index hinausgeht
-				// dafür sorgt das Modell bei Add und Remove
-				InsertRecalcGeoObject(geoObjects[i], data.Precision, data.CancellationToken);
-			}
-			//System.Diagnostics.Trace.WriteLine("Objekte eingefügt, Genauigkeit: " + precision.ToString());
-			if (!data.CancellationToken.IsCancellationRequested) //Don't even start waiting the completition of the pool threads if the background computation was aborted during queueing.
-			{
-				lock (runningThreads)
-				{   // wenn noch welche laufen, dann warten bis alle zu Ende sind
-					//System.Diagnostics.Trace.WriteLine("runningThreads.Count : " + runningThreads.Count.ToString());
-					if (runningThreads.Count > 0)
+					if (data.CancellationToken.IsCancellationRequested)
 					{
-						recalcDone = new EventWaitHandle(false, EventResetMode.ManualReset);
-						// jetzt muss der letzte Thread mit Set()
-						// das Ding wieder freigeben
+						break;
+					}
+					// Beim zufügen und entfernen muss diese Aktion abgebrochen werden, damit man nicht über den Index hinausgeht
+					// dafür sorgt das Modell bei Add und Remove
+					InsertRecalcGeoObject(geoObjects[i], data.Precision, data.CancellationToken);
+				}
+				//System.Diagnostics.Trace.WriteLine("Objekte eingefügt, Genauigkeit: " + precision.ToString());
+				if (!data.CancellationToken.IsCancellationRequested) //Don't even start waiting the completition of the pool threads if the background computation was aborted during queueing.
+				{
+					lock (runningThreads)
+					{   // wenn noch welche laufen, dann warten bis alle zu Ende sind
+						//System.Diagnostics.Trace.WriteLine("runningThreads.Count : " + runningThreads.Count.ToString());
+						if (runningThreads.Count > 0)
+						{
+							recalcDone = new EventWaitHandle(false, EventResetMode.ManualReset);
+							// jetzt muss der letzte Thread mit Set()
+							// das Ding wieder freigeben
+						}
+					}
+					if (recalcDone != null)
+					{
+						//System.Diagnostics.Trace.WriteLine("vor recalcDone.WaitOne");
+						recalcDone.WaitOne(); // warte bis alle threads zu Ende sind
+											  //System.Diagnostics.Trace.WriteLine("nach recalcDone.WaitOne");
+					}
+					if (!data.CancellationToken.IsCancellationRequested) //If the background thread was aborted during waiting the pool threads, this precision was not computed til the end, ignore it.
+					{
+						displayListPrecision = data.Precision;
+						displayListsDirty = true; // damits einen Repaint gibt
+												  // System.Diagnostics.Trace.WriteLine("NewDisplaylistAvailableEvent, Genauigkeit: " + precision.ToString());
+						if (NewDisplaylistAvailableEvent != null) NewDisplaylistAvailableEvent(this);
+						// die ProjectedModels können ein Invalidate machen
+						// es hat alles geklappt
 					}
 				}
-				if (recalcDone != null)
-				{
-					//System.Diagnostics.Trace.WriteLine("vor recalcDone.WaitOne");
-					recalcDone.WaitOne(); // warte bis alle threads zu Ende sind
-										  //System.Diagnostics.Trace.WriteLine("nach recalcDone.WaitOne");
-				}
-				if (!data.CancellationToken.IsCancellationRequested) //If the background thread was aborted during waiting the pool threads, this precision was not computed til the end, ignore it.
-				{
-					displayListPrecision = data.Precision;
-					displayListsDirty = true; // damits einen Repaint gibt
-											  // System.Diagnostics.Trace.WriteLine("NewDisplaylistAvailableEvent, Genauigkeit: " + precision.ToString());
-					if (NewDisplaylistAvailableEvent != null) NewDisplaylistAvailableEvent(this);
-					// die ProjectedModels können ein Invalidate machen
-					// es hat alles geklappt
-				}
 			}
-			lock (runningThreads)
+			catch (Exception ex) when (!(ex is ThreadAbortException))
 			{
-				runningThreads.Clear(); // sollte hier eh immer leer sein
-				cancellationTokenSource.Dispose();
-				cancellationTokenSource = null;
-				manageBackgroundRecalc = null; // dieser Thread, signalisiert dass noch eine Hintergrund Berechnung läuft
-				recalcDone = null; // WaitEvent wird nicht mehr gebraucht, signalisiert dass die Queue fertig gefüllt ist
+				// This runs on a dedicated background thread: an unhandled exception would terminate
+				// the process without any message. The display list precision simply stays as it was.
+				System.Diagnostics.Trace.WriteLine("Model.DoBackgroundRecalcDisplayList: " + ex.Message);
+			}
+			finally
+			{
+				lock (runningThreads)
+				{
+					runningThreads.Clear(); // sollte hier eh immer leer sein
+					cancellationTokenSource.Dispose();
+					cancellationTokenSource = null;
+					manageBackgroundRecalc = null; // dieser Thread, signalisiert dass noch eine Hintergrund Berechnung läuft
+					recalcDone = null; // WaitEvent wird nicht mehr gebraucht, signalisiert dass die Queue fertig gefüllt ist
+				}
 			}
 		}
 

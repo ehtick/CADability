@@ -7490,6 +7490,12 @@ namespace CADability.Actions
 				CallbackOnDone.DynamicInvoke();
 			}
 			catch (ThreadAbortException) { } // hat nichts gemacht, wieder weg damit
+			catch (Exception e)
+			{
+				// this is a dedicated thread: an unhandled exception here would terminate the whole process
+				// without any message. The callback is not invoked, the action simply has no result.
+				System.Diagnostics.Trace.WriteLine("ConstructAction background task failed: " + e.Message);
+			}
 			backgroundTask = null; // um anzuzeigen, dass wir fertig sind
 								   //System.Diagnostics.Trace.WriteLine("StartThread-Done");
 		}
