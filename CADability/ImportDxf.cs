@@ -1591,12 +1591,26 @@ namespace CADability.DXF
             text.TextString = txtstring;
 
             double h = txt.Height;
-            Plane plane = Plane(txt.InsertPoint, txt.Normal);
+            // Groups 72/73 decide which point positions the text: with anything other than
+            // left/baseline alignment it is group 11 (AlignmentPoint), and group 10 is then
+            // commonly left at (0,0,0). Using group 10 unconditionally piles those texts up
+            // on the origin.
+            XYZ anchor = txt.InsertPoint;
+            if (txt.HorizontalAlignment != TextHorizontalAlignment.Left
+                || txt.VerticalAlignment != TextVerticalAlignmentType.Baseline)
+            {
+                XYZ alignmentPoint = txt.AlignmentPoint;
+                // Tolerate writers that announce a non-default alignment but never fill in
+                // group 11 — fall back to the insertion point rather than the origin.
+                if (alignmentPoint != XYZ.Zero || txt.InsertPoint == XYZ.Zero)
+                    anchor = alignmentPoint;
+            }
+            Plane plane = Plane(anchor, txt.Normal);
             Angle a = new Angle(txt.Rotation);
             GeoVector2D dir2d = new GeoVector2D(a);
             GeoVector linedir = plane.ToGlobal(dir2d);
             GeoVector glyphdir = plane.ToGlobal(dir2d.ToLeft());
-            text.Location = GeoPoint(txt.InsertPoint);
+            text.Location = GeoPoint(anchor);
             text.LineDirection = linedir;
             text.GlyphDirection = glyphdir;
             text.TextSize = h;
@@ -1740,6 +1754,9 @@ namespace CADability.DXF
                 Rotation = mText.Rotation,
                 Style = mText.Style,
                 InsertPoint = mText.InsertPoint,
+                // MTEXT anchors at its insertion point whatever the attachment point is;
+                // mirror it into group 11 so CreateText's alignment rule picks it up.
+                AlignmentPoint = mText.InsertPoint,
                 Normal = mText.Normal,
                 HorizontalAlignment = hAlign,
                 VerticalAlignment = vAlign,

@@ -85,7 +85,10 @@ namespace CADability.DXF
             SetExtents(modelSpace);
             var ms = new MemoryStream();
             using (var writer = new DxfWriter(ms, doc, false))
+            {
+                ConfigureWriter(writer);
                 writer.Write();
+            }
             return ms.ToArray();
         }
 
@@ -115,7 +118,10 @@ namespace CADability.DXF
             }
             SetExtents(modelSpace);
             using (var writer = new DxfWriter(filename, doc, false))
+            {
+                ConfigureWriter(writer);
                 writer.Write();
+            }
         }
 
         private void SetExtents(Model model)
@@ -132,6 +138,23 @@ namespace CADability.DXF
                 }
             }
             catch { }
+        }
+
+        /// <summary>
+        /// ACadSharp only writes a small default set of header variables, which does not
+        /// include the drawing extents. Without them a reader has no zoom-to-extents
+        /// information and has to derive it from the geometry — and an infinite construction
+        /// line (XLINE) throws that off completely, so unrelated geometry appears to have
+        /// moved or shows up where nothing was visible before.
+        /// </summary>
+        private static void ConfigureWriter(DxfWriter writer)
+        {
+            string[] variables = new string[] { "$EXTMIN", "$EXTMAX", "$LIMMIN", "$LIMMAX", "$TILEMODE" };
+            foreach (string variable in variables)
+            {
+                try { writer.Configuration.AddHeaderVariable(variable); }
+                catch (ArgumentException) { } // not known to this ACadSharp version
+            }
         }
 
         private Entity[] GeoObjectToEntity(IGeoObject geoObject)
@@ -463,7 +486,10 @@ namespace CADability.DXF
 
         private Entity ExportText(GeoObject.Text text)
         {
-            var textString = text.TextString.Replace("\r\n", " ");
+            // Keep the line breaks: a multi-line text is exported as MTEXT further down.
+            // Collapsing them into spaces (or leaving a raw '\n' in a TEXT value, which the
+            // DXF writer escapes to "^J") turns multi-line texts into unreadable single lines.
+            var textString = text.TextString.Replace("\r\n", "\n").Replace("\r", "\n");
             System.Drawing.FontStyle fs = System.Drawing.FontStyle.Regular;
             if (text.Bold) fs |= System.Drawing.FontStyle.Bold;
             if (text.Italic) fs |= System.Drawing.FontStyle.Italic;
@@ -502,6 +528,23 @@ namespace CADability.DXF
             bool defaultAlign = hAlign == TextHorizontalAlignment.Left
                              && vAlign == TextVerticalAlignmentType.Baseline;
 
+            GeoVector lineDir = text.LineDirection.Normalized;
+            GeoVector glyphDir = text.GlyphDirection.Normalized;
+            GeoVector normal = lineDir ^ glyphDir;
+
+            // Compute rotation in OCS using the Arbitrary Axis Algorithm.
+            // ACadSharp stores angles in radians and converts them to degrees when writing
+            // (DxfReferenceType.IsAngle), so hand it radians — not degrees.
+            Plane ocsPlane = Import.Plane(ToXYZ(text.Location), ToXYZ(normal));
+            GeoVector2D dir2D = ocsPlane.Project(lineDir);
+            double rotation = Math.Atan2(dir2D.y, dir2D.x);
+
+            // A DXF TEXT is single-line by definition. Anything with explicit line breaks or
+            // an automatic wrapping width has to go out as MTEXT, otherwise the line structure
+            // is lost and the remaining lines end up merged into the first one.
+            if (textString.IndexOf('\n') >= 0 || text.ColumnWidth > 0)
+                return BuildMText(text, textString, height, textStyle, hAlign, vAlign, normal, rotation);
+
             // Group 10 (InsertPoint) always holds the text anchor so viewers that ignore
             // group 11 still render text at the correct position.
             // For non-default alignment, group 11 (AlignmentPoint) is also set to the
@@ -514,20 +557,83 @@ namespace CADability.DXF
                 HorizontalAlignment = hAlign,
                 VerticalAlignment = vAlign,
                 InsertPoint = ToXYZ(text.Location),
+                Normal = ToXYZ(normal),
+                Rotation = rotation,
             };
+            // Set group 11 whenever it is meaningful. Leaving it at its (0,0,0) default while
+            // groups 72/73 say it is authoritative would place the text at the origin.
             if (!defaultAlign)
                 res.AlignmentPoint = ToXYZ(text.Location);
-
-            GeoVector lineDir = text.LineDirection.Normalized;
-            GeoVector glyphDir = text.GlyphDirection.Normalized;
-            GeoVector normal = lineDir ^ glyphDir;
-            res.Normal = ToXYZ(normal);
-
-            // Compute rotation in OCS using the Arbitrary Axis Algorithm
-            Plane ocsPlane = Import.Plane(ToXYZ(text.Location), ToXYZ(normal));
-            GeoVector2D dir2D = ocsPlane.Project(lineDir);
-            res.Rotation = Math.Atan2(dir2D.y, dir2D.x) * (180.0 / Math.PI);
             return res;
+        }
+
+        /// <summary>
+        /// Builds an MTEXT for a text that a DXF TEXT cannot represent: one with explicit line
+        /// breaks or an automatic wrapping width.
+        /// </summary>
+        private ACadSharp.Entities.MText BuildMText(GeoObject.Text text, string textString, double height,
+            ACadSharp.Tables.TextStyle textStyle, TextHorizontalAlignment hAlign,
+            TextVerticalAlignmentType vAlign, GeoVector normal, double rotation)
+        {
+            // MTEXT anchors the whole text block at one of nine attachment points, which is
+            // exactly what CADability's Alignment/LineAlignment pair describes.
+            int column;
+            switch (hAlign)
+            {
+                case TextHorizontalAlignment.Center: column = 1; break;
+                case TextHorizontalAlignment.Right: column = 2; break;
+                default: column = 0; break;
+            }
+            int row;
+            switch (vAlign)
+            {
+                case TextVerticalAlignmentType.Top: row = 0; break;
+                case TextVerticalAlignmentType.Middle: row = 1; break;
+                default: row = 2; break; // Bottom and Baseline
+            }
+            var res = new ACadSharp.Entities.MText
+            {
+                Value = ToMTextValue(textString),
+                Height = height,
+                Style = textStyle,
+                InsertPoint = ToXYZ(text.Location),
+                Normal = ToXYZ(normal),
+                AttachmentPoint = (AttachmentPointType)(row * 3 + column + 1),
+            };
+            // For MTEXT group 11 is the X-axis direction vector, not a point, and it is what
+            // carries the rotation (group 50 is not written for MTEXT).
+            res.AlignmentPoint = new XYZ(Math.Cos(rotation), Math.Sin(rotation), 0.0);
+            if (text.ColumnWidth > 0) res.RectangleWidth = text.ColumnWidth;
+            if (text.LineSpacing > 0)
+            {
+                // Import stores the DXF spacing factor as 5/3 * factor (AutoCAD's MTEXT
+                // baseline distance); invert that here and keep it inside the DXF range.
+                double factor = text.LineSpacing * 3.0 / 5.0;
+                res.LineSpacing = Math.Max(0.25, Math.Min(4.0, factor));
+            }
+            return res;
+        }
+
+        /// <summary>
+        /// Escapes a plain string for use as an MTEXT value: the MTEXT format characters have
+        /// to be escaped and line breaks become the paragraph code "\P".
+        /// </summary>
+        private static string ToMTextValue(string value)
+        {
+            var sb = new System.Text.StringBuilder(value.Length + 8);
+            foreach (char c in value)
+            {
+                switch (c)
+                {
+                    case '\\': sb.Append("\\\\"); break;
+                    case '{': sb.Append("\\{"); break;
+                    case '}': sb.Append("\\}"); break;
+                    case '\n': sb.Append("\\P"); break;
+                    case '\r': break;
+                    default: sb.Append(c); break;
+                }
+            }
+            return sb.ToString();
         }
 
         private ACadSharp.Entities.Insert ExportBlock(GeoObject.Block blk)
