@@ -611,6 +611,9 @@ namespace CADability.DXF
                 // baseline distance); invert that here and keep it inside the DXF range.
                 double factor = text.LineSpacing * 3.0 / 5.0;
                 res.LineSpacing = Math.Max(0.25, Math.Min(4.0, factor));
+                // Group 73 must name a real spacing style, otherwise the factor in group 44
+                // is ignored; the default (None/0) is not one the DXF reference allows here.
+                res.LineSpacingStyle = LineSpacingStyleType.AtLeast;
             }
             return res;
         }
