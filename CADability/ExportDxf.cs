@@ -464,6 +464,12 @@ namespace CADability.DXF
 
             Plane plane = hatch.Plane;
             GeoVector normal = plane.Normal;
+            // A filled area has no preferred side, and a downward normal spans a mirrored
+            // OCS: its X axis is (-1,0,0). Readers that take a hatch boundary for world
+            // coordinates — CreateHatch below does — then place the area mirrored about the
+            // Y axis. Flipping the normal up keeps OCS and world identical for the usual
+            // drawing plane and costs nothing, since the fill looks the same from either side.
+            if (normal.z < 0) normal = -normal;
             // Both SOLID corners and HATCH boundary points are read in the OCS that the
             // normal spans, not in world coordinates.
             Plane ocs = Import.Plane(new XYZ(0, 0, 0), ToXYZ(normal));
