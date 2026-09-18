@@ -460,45 +460,94 @@ namespace CADability.DXF
         {
             if (hatch.CompoundShape == null || hatch.CompoundShape.SimpleShapes.Length == 0)
                 return null;
-            // Export simple solid-fill triangles/quads (from DXF SOLID import) back as SOLID.
-            if (hatch.HatchStyle is HatchStyleSolid)
+            if (!(hatch.HatchStyle is HatchStyleSolid)) return null;
+
+            Plane plane = hatch.Plane;
+            GeoVector normal = plane.Normal;
+            // Both SOLID corners and HATCH boundary points are read in the OCS that the
+            // normal spans, not in world coordinates.
+            Plane ocs = Import.Plane(new XYZ(0, 0, 0), ToXYZ(normal));
+            SimpleShape[] shapes = hatch.CompoundShape.SimpleShapes;
+
+            // A single outline of three or four straight segments with no holes is what a
+            // DXF SOLID can represent exactly; keep writing those back as SOLID.
+            if (shapes.Length == 1 && shapes[0].Holes.Length == 0)
             {
-                SimpleShape ss = hatch.CompoundShape.SimpleShapes[0];
-                ICurve2D[] segs = ss.Outline.Segments;
-                if (segs.Length >= 3 && segs.Length <= 4 && segs.All(s => s is CADability.Curve2D.Line2D))
+                ICurve2D[] segs = shapes[0].Outline.Segments;
+                if (segs.Length >= 3 && segs.Length <= 4 && segs.All(c => c is CADability.Curve2D.Line2D))
                 {
                     GeoPoint[] pts = new GeoPoint[4];
                     for (int i = 0; i < segs.Length; i++)
-                        pts[i] = hatch.Plane.ToGlobal(segs[i].StartPoint);
+                        pts[i] = plane.ToGlobal(segs[i].StartPoint);
                     // DXF SOLID requires 4 corners; duplicate last for triangles
                     if (segs.Length == 3) pts[3] = pts[2];
-
-                    // A SOLID's corners are read in the OCS that its normal (groups
-                    // 210/220/230) spans, not in world coordinates. Writing world corners
-                    // next to a normal other than +Z makes the reader mirror or rotate them:
-                    // a hatch plane whose normal points down (0,0,-1) spans an OCS whose X
-                    // axis is (-1,0,0), so the filled area came back mirrored about the Y
-                    // axis — far away from the rest of the drawing. Project the corners into
-                    // that OCS so they survive the round trip.
-                    GeoVector normal = hatch.Plane.Normal;
-                    Plane ocs = Import.Plane(new XYZ(0, 0, 0), ToXYZ(normal));
-                    XYZ[] corners = new XYZ[4];
+                    XYZ[] c4 = new XYZ[4];
                     for (int i = 0; i < 4; i++)
                     {
                         GeoPoint2D flat = ocs.Project(pts[i]);
-                        corners[i] = new XYZ(flat.x, flat.y, ocs.Distance(pts[i]));
+                        c4[i] = new XYZ(flat.x, flat.y, ocs.Distance(pts[i]));
                     }
                     return new ACadSharp.Entities.Solid
                     {
-                        FirstCorner  = corners[0],
-                        SecondCorner = corners[1],
-                        ThirdCorner  = corners[2],
-                        FourthCorner = corners[3],
+                        FirstCorner = c4[0],
+                        SecondCorner = c4[1],
+                        // A SOLID is drawn c1->c2->c4->c3, so the third and fourth corners
+                        // are swapped against the outline order. Writing them in plain
+                        // order makes the area come back as a self-intersecting bowtie.
+                        ThirdCorner = c4[3],
+                        FourthCorner = c4[2],
                         Normal = ToXYZ(normal)
                     };
                 }
             }
-            return null;
+
+            // Anything else — holes, several outlines, curved or many-segment boundaries —
+            // does not fit into a SOLID. Reducing it to its outer rectangle loses the
+            // cut-outs (a logo's lettering, for instance), so write a real HATCH.
+            var res = new ACadSharp.Entities.Hatch
+            {
+                IsSolid = true,
+                Pattern = ACadSharp.Entities.HatchPattern.Solid,
+                Normal = ToXYZ(normal),
+                Elevation = ocs.Distance(plane.Location),
+            };
+            foreach (SimpleShape ss in shapes)
+            {
+                AddHatchPath(res, ss.Outline, plane, ocs, BoundaryPathFlags.External);
+                foreach (Border hole in ss.Holes)
+                    AddHatchPath(res, hole, plane, ocs, BoundaryPathFlags.Outermost);
+            }
+            return res.Paths.Count > 0 ? res : null;
+        }
+
+        /// <summary>
+        /// Appends one closed boundary of a hatch as a path of line edges, converted from the
+        /// hatch plane into the OCS that the written normal spans.
+        /// </summary>
+        private static void AddHatchPath(ACadSharp.Entities.Hatch target, Border border,
+            Plane plane, Plane ocs, BoundaryPathFlags flags)
+        {
+            if (border == null || border.Segments == null || border.Segments.Length == 0) return;
+            var path = new ACadSharp.Entities.Hatch.BoundaryPath { Flags = flags };
+            foreach (ICurve2D seg in border.Segments)
+            {
+                // Straight segments map one to one; anything curved is approximated, which
+                // is invisible in a solid fill.
+                int steps = seg is CADability.Curve2D.Line2D ? 1 : 16;
+                GeoPoint2D from = ocs.Project(plane.ToGlobal(seg.StartPoint));
+                for (int i = 1; i <= steps; i++)
+                {
+                    GeoPoint2D raw = i == steps ? seg.EndPoint : seg.PointAt((double)i / steps);
+                    GeoPoint2D to = ocs.Project(plane.ToGlobal(raw));
+                    path.Edges.Add(new ACadSharp.Entities.Hatch.BoundaryPath.Line
+                    {
+                        Start = new XY(from.x, from.y),
+                        End = new XY(to.x, to.y)
+                    });
+                    from = to;
+                }
+            }
+            if (path.Edges.Count > 0) target.Paths.Add(path);
         }
 
         private Entity ExportText(GeoObject.Text text)
