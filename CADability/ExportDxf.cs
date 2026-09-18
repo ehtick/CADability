@@ -192,6 +192,7 @@ namespace CADability.DXF
             {
                 for (int i = 0; i < entities.Length; i++)
                 {
+                    entities[i].IsInvisible = !geoObject.IsVisible;
                     if (geoObject.Layer == null) continue;
                     entities[i].Layer = GetOrCreateLayer(geoObject.Layer);
                 }
@@ -900,6 +901,10 @@ namespace CADability.DXF
 
         private void SetAttributes(Entity entity, IGeoObject go)
         {
+            // DXF group 60 carries the visibility flag. Import maps it to IsVisible, so it
+            // has to be written back here — otherwise objects that were deliberately hidden
+            // in the source drawing (construction lines, reference points) reappear on export.
+            entity.IsInvisible = !go.IsVisible;
             if (go is IColorDef cd && cd.ColorDef != null)
             {
                 entity.Color = ToAcadColor(cd.ColorDef.Color);
