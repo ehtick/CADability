@@ -472,13 +472,29 @@ namespace CADability.DXF
                         pts[i] = hatch.Plane.ToGlobal(segs[i].StartPoint);
                     // DXF SOLID requires 4 corners; duplicate last for triangles
                     if (segs.Length == 3) pts[3] = pts[2];
+
+                    // A SOLID's corners are read in the OCS that its normal (groups
+                    // 210/220/230) spans, not in world coordinates. Writing world corners
+                    // next to a normal other than +Z makes the reader mirror or rotate them:
+                    // a hatch plane whose normal points down (0,0,-1) spans an OCS whose X
+                    // axis is (-1,0,0), so the filled area came back mirrored about the Y
+                    // axis — far away from the rest of the drawing. Project the corners into
+                    // that OCS so they survive the round trip.
+                    GeoVector normal = hatch.Plane.Normal;
+                    Plane ocs = Import.Plane(new XYZ(0, 0, 0), ToXYZ(normal));
+                    XYZ[] corners = new XYZ[4];
+                    for (int i = 0; i < 4; i++)
+                    {
+                        GeoPoint2D flat = ocs.Project(pts[i]);
+                        corners[i] = new XYZ(flat.x, flat.y, ocs.Distance(pts[i]));
+                    }
                     return new ACadSharp.Entities.Solid
                     {
-                        FirstCorner  = ToXYZ(pts[0]),
-                        SecondCorner = ToXYZ(pts[1]),
-                        ThirdCorner  = ToXYZ(pts[2]),
-                        FourthCorner = ToXYZ(pts[3]),
-                        Normal = ToXYZ(hatch.Plane.Normal)
+                        FirstCorner  = corners[0],
+                        SecondCorner = corners[1],
+                        ThirdCorner  = corners[2],
+                        FourthCorner = corners[3],
+                        Normal = ToXYZ(normal)
                     };
                 }
             }
