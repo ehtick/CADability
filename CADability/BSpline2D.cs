@@ -61,6 +61,9 @@ namespace CADability.Curve2D
         // Length integrates the curve, which is far too expensive to repeat.
         // Negative means "not computed yet"; InvalidateCache resets it.
         private double length = -1.0;
+        // The parameters at which the interpolating constructor passes through its points, kept so that
+        // the overload taking a throughpointsparam array can hand them back. Null otherwise.
+        private double[] interpolationParameters;
         // Arc length at each knot, and the knots it belongs to, both in normalized parameter space.
         // null means "not built yet"; reset together with length.
         private double[] cumulativeLength;
@@ -815,6 +818,136 @@ namespace CADability.Curve2D
             }
             else return null; // this are no hyperbola points
         }
+        /// <summary>
+        /// Wraps an already computed non rational <see cref="Nurbs{T, C}"/> into a BSpline2D, taking over
+        /// its poles, knots and degree. The parameter range of this curve becomes the knot range of the
+        /// Nurbs, so <see cref="PointAt"/> at the normalized position 0...1 runs over exactly that range.
+        /// </summary>
+        internal BSpline2D(Nurbs<GeoPoint2D, GeoPoint2DPole> nubs)
+        {
+            this.nubs = nubs;
+            // the Nurbs keeps its knots with repetitions, this class keeps them with multiplicities
+            List<double> newknots = new List<double>();
+            List<int> newmults = new List<int>();
+            newknots.Add(nubs.UKnots[0]);
+            newmults.Add(1);
+            for (int i = 1; i < nubs.UKnots.Length; ++i)
+            {
+                if (nubs.UKnots[i] == newknots[newknots.Count - 1]) ++newmults[newmults.Count - 1];
+                else
+                {
+                    newknots.Add(nubs.UKnots[i]);
+                    newmults.Add(1);
+                }
+            }
+            double[] newweights = new double[nubs.Poles.Length];
+            for (int i = 0; i < newweights.Length; ++i) newweights[i] = 1.0;
+            this.poles = (GeoPoint2D[])nubs.Poles.Clone();
+            this.knots = newknots.ToArray();
+            this.multiplicities = newmults.ToArray();
+            this.weights = newweights;
+            this.startParam = knots[0];
+            this.endParam = knots[knots.Length - 1];
+            this.periodic = false;
+            this.degree = nubs.UDegree;
+            Init();
+        }
+
+        /// <summary>
+        /// Approximates the provided function by a cubic BSpline. Starting with eleven samples the curve
+        /// is refined - always at the middle of the interval that is still too far off - until the
+        /// deviation is below <paramref name="precision"/> everywhere or <paramref name="maxCount"/>
+        /// samples are reached. The parameter of the resulting BSpline2D is the parameter of the provided
+        /// function: <c>PointAt((par - minPar) / (maxPar - minPar))</c> approximates <c>curve(par)</c>.
+        /// </summary>
+        /// <param name="curve">the curve to approximate, as a parameter to point function</param>
+        /// <param name="precision">the maximum deviation</param>
+        /// <param name="minPar">the parameter where the curve starts</param>
+        /// <param name="maxPar">the parameter where the curve ends, must be greater than minPar</param>
+        /// <param name="maxCount">the maximum number of samples to use</param>
+        /// <returns>the approximating BSpline, null if the parameter range is invalid</returns>
+        public static BSpline2D Approximate(Func<double, GeoPoint2D> curve, double precision, double minPar = 0.0, double maxPar = 1.0, int maxCount = 1000)
+        {
+            if (curve == null || !(maxPar > minPar)) return null; // an empty range would not terminate below
+            const int initialCount = 11;
+            List<double> parameters = new List<double>(initialCount);
+            List<GeoPoint2D> points = new List<GeoPoint2D>(initialCount);
+            for (int i = 0; i < initialCount; i++)
+            {
+                double par = minPar + (maxPar - minPar) * i / (double)(initialCount - 1);
+                parameters.Add(par);
+                points.Add(curve(par));
+            }
+            BSpline2D bsp = FromSamples(points, parameters);
+            if (bsp == null) return null;
+
+            while (parameters.Count < maxCount)
+            {
+                // Collect every interval whose middle is still too far off, then rebuild once. Rebuilding
+                // per interval would be a full interpolation per added point.
+                List<double> newParameters = new List<double>();
+                List<GeoPoint2D> newPoints = new List<GeoPoint2D>();
+                for (int i = 1; i < parameters.Count; i++)
+                {
+                    if (parameters[i] - parameters[i - 1] <= 1e-6 * (maxPar - minPar)) continue; // nothing left to halve
+                    double middle = 0.5 * (parameters[i] + parameters[i - 1]);
+                    GeoPoint2D p = curve(middle);
+                    // Measured at the parameter, not as the distance to the nearest point of the spline:
+                    // what this method promises is that PointAt of the normalized parameter approximates
+                    // curve(par), and a spline can run close to the curve geometrically while its
+                    // parameterization has drifted away from it.
+                    double d = bsp.PointAt((middle - minPar) / (maxPar - minPar)) | p;
+                    if (d > precision)
+                    {
+                        newParameters.Add(middle);
+                        newPoints.Add(p);
+                    }
+                }
+                if (newParameters.Count == 0) break; // close enough everywhere
+
+                for (int i = 0; i < newParameters.Count; i++)
+                {
+                    if (parameters.Count >= maxCount) break;
+                    int at = parameters.BinarySearch(newParameters[i]);
+                    if (at >= 0) continue; // already there
+                    at = ~at;
+                    parameters.Insert(at, newParameters[i]);
+                    points.Insert(at, newPoints[i]);
+                }
+                BSpline2D refined = FromSamples(points, parameters);
+                if (refined == null) break; // keep the last usable result
+                bsp = refined;
+            }
+            return bsp;
+        }
+
+        /// <summary>
+        /// Interpolates the samples by a cubic BSpline whose parameter range is the range of
+        /// <paramref name="parameters"/>. Null when the interpolation fails.
+        /// </summary>
+        private static BSpline2D FromSamples(List<GeoPoint2D> points, List<double> parameters)
+        {
+            if (points.Count < 2) return null;
+            // The Nurbs constructor expects the parameters of the points 1..n-1 and places the FIRST point
+            // at parameter 0.0 unconditionally, so the range has to be shifted to start there - otherwise
+            // the first span becomes an extrapolation over the whole offset. The resulting knot range is
+            // 0...(max-min), which is what the normalized position of PointAt runs over anyway.
+            double offset = parameters[0];
+            double[] k = new double[parameters.Count - 1];
+            for (int i = 1; i < parameters.Count; i++) k[i - 1] = parameters[i] - offset;
+            try
+            {
+                Nurbs<GeoPoint2D, GeoPoint2DPole> nubs =
+                    new Nurbs<GeoPoint2D, GeoPoint2DPole>(3, points.ToArray(), k, false);
+                return new BSpline2D(nubs);
+            }
+            catch (Exception e)
+            {
+                if (e is ThreadAbortException) throw;
+                return null;
+            }
+        }
+
         private bool ClampPeriodic(double startPar, double endPar)
         {
             if (nubs != null)
@@ -931,11 +1064,29 @@ namespace CADability.Curve2D
         /// <param name="throughpoints">the points to be interpolated</param>
         /// <param name="degree">the degree of the BSpline2D</param>
         /// <param name="periodic">true for periodic (closed) false otherwise</param>
+        /// <param name="throughpointsparam">receives the positions at which the curve passes through the
+        /// provided points, normalized to 0...1 so that they can be handed to <see cref="PointAt"/>
+        /// directly; the array must have the same length as <paramref name="throughpoints"/></param>
+        public BSpline2D(GeoPoint2D[] throughpoints, int degree, bool periodic, double[] throughpointsparam)
+            : this(throughpoints, degree, periodic)
+        {
+            if (throughpointsparam != null && interpolationParameters != null)
+            {
+                // The Nurbs computes them in knot space, PointAt expects 0...1
+                double range = endParam - startParam;
+                int n = Math.Min(throughpointsparam.Length, interpolationParameters.Length);
+                for (int i = 0; i < n; i++)
+                {
+                    throughpointsparam[i] = range > 0.0 ? (interpolationParameters[i] - startParam) / range : 0.0;
+                }
+            }
+        }
         public BSpline2D(GeoPoint2D[] throughpoints, int degree, bool periodic)
         {
             degree = Math.Min(degree, throughpoints.Length - 1); // bei 2 Punkten nur 1. Grad, also Linie, u.s.w
             double[] throughpointsparam;
             nubs = new Nurbs<GeoPoint2D, GeoPoint2DPole>(degree, throughpoints, periodic, out throughpointsparam);
+            interpolationParameters = throughpointsparam;
             poles = nubs.Poles;
             double[] flatknots = nubs.UKnots;
             List<double> hknots = new List<double>();

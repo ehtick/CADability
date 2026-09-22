@@ -74,6 +74,42 @@ namespace CADability.Curve2D
             vtx[numberOfVertices] = vtx[0];
             return new Polyline2D(vtx);
         }
+        /// <summary>
+        /// Creates a closed regular polygon with <paramref name="numVertices"/> corners on the circle
+        /// around <paramref name="center"/> with the radius <paramref name="outerRadius"/>. The first
+        /// corner sits at <paramref name="offsetAngle"/>, the polygon runs counterclockwise and its last
+        /// vertex repeats the first one.
+        /// </summary>
+        public static Polyline2D MakeRegularPolygon(GeoPoint2D center, double outerRadius, double offsetAngle, int numVertices)
+        {
+            if (numVertices < 3) return null;
+            GeoPoint2D[] points = new GeoPoint2D[numVertices + 1];
+            double da = 2 * Math.PI / numVertices;
+            for (int i = 0; i < numVertices; i++)
+            {
+                double s = Math.Sin(i * da + offsetAngle);
+                double c = Math.Cos(i * da + offsetAngle);
+                points[i] = center + new GeoVector2D(outerRadius * c, outerRadius * s);
+            }
+            points[numVertices] = points[0];
+            return new Polyline2D(points);
+        }
+        /// <summary>
+        /// Creates a closed rectangle of the given width and height around <paramref name="center"/>,
+        /// rotated by <paramref name="angle"/> about that center. The last vertex repeats the first one.
+        /// </summary>
+        public static Polyline2D MakeRectangle(GeoPoint2D center, double width, double height, Angle angle)
+        {
+            GeoPoint2D[] vtx = new GeoPoint2D[5];
+            vtx[0] = new GeoPoint2D(center.x - width / 2, center.y - height / 2);
+            vtx[1] = new GeoPoint2D(center.x + width / 2, center.y - height / 2);
+            vtx[2] = new GeoPoint2D(center.x + width / 2, center.y + height / 2);
+            vtx[3] = new GeoPoint2D(center.x - width / 2, center.y + height / 2);
+            vtx[4] = vtx[0];
+            Polyline2D res = new Polyline2D(vtx);
+            if (angle.Radian != 0.0) res = res.GetModified(ModOp2D.Rotate(center, angle)) as Polyline2D;
+            return res;
+        }
         public void SetVertices(GeoPoint2D[] vertices)
         {
             vertex = vertices;

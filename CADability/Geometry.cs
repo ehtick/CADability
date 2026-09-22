@@ -3184,6 +3184,35 @@ namespace CADability
         //}
 
         /// <summary>
+        /// The circle through three points. Unlike <see cref="CircleFitLs"/>, which minimizes over any
+        /// number of points, this is the exact solution and needs no iteration. The computation is done
+        /// relative to <paramref name="p1"/>, which keeps it well conditioned for points far from the
+        /// coordinate origin.
+        /// </summary>
+        /// <param name="center">center of the circle through the three points</param>
+        /// <param name="radius">its radius</param>
+        /// <returns>false, if the three points are colinear and there is no such circle</returns>
+        public static bool CircleFit(GeoPoint2D p1, GeoPoint2D p2, GeoPoint2D p3, out GeoPoint2D center, out double radius)
+        {
+            double ax = p2.x - p1.x, ay = p2.y - p1.y;
+            double bx = p3.x - p1.x, by = p3.y - p1.y;
+
+            double d = 2 * (ax * by - ay * bx); // twice the signed area of the triangle
+            if (Math.Abs(d) < 1e-10)
+            {
+                radius = 0.0;
+                center = GeoPoint2D.Invalid;
+                return false;
+            }
+
+            double ux = (by * (ax * ax + ay * ay) - ay * (bx * bx + by * by)) / d;
+            double uy = (ax * (bx * bx + by * by) - bx * (ax * ax + ay * ay)) / d;
+
+            center = new GeoPoint2D(p1.x + ux, p1.y + uy);
+            radius = p1 | center;
+            return true;
+        }
+        /// <summary>
         /// tries to find a center and radius for a circle which best fits to the provided points
         /// </summary>
         /// <param name="points">points to fit</param>

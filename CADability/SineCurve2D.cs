@@ -20,6 +20,29 @@ namespace CADability.Curve2D
         {
             return new SineCurve2D(ustart, udiff, fromUnit);
         }
+        /// <summary>
+        /// The transformation which maps the unit sine curve (u, sin(u)) onto this curve.
+        /// </summary>
+        public ModOp2D FromUnit => fromUnit;
+        /// <summary>
+        /// The parameter u of the unit sine curve (u, sin(u)) at the start point of this curve.
+        /// </summary>
+        public double UStart => ustart;
+        /// <summary>
+        /// The difference of the parameter u of the unit sine curve (u, sin(u)) between end and start
+        /// point of this curve. Negative when the curve is reversed.
+        /// </summary>
+        public double UDiff => udiff;
+        /// <summary>
+        /// Shifts this curve along its sine wave so that it starts at <paramref name="p2d"/>, which is
+        /// expected to lie on the curve. NOTE: the parameter span is kept, so the END POINT MOVES BY THE
+        /// SAME AMOUNT - this corrects a start point that is slightly off, it does not trim the curve.
+        /// </summary>
+        internal void StartAt(GeoPoint2D p2d)
+        {
+            double d = PositionOf(p2d);
+            ustart += d * udiff;
+        }
 
         public override void Copy(ICurve2D toCopyFrom)
         {

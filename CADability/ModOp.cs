@@ -286,6 +286,28 @@ namespace CADability
         /// <param name="Center">the fixpoint</param>
         /// <param name="Rotation">the rotation angle</param>
         /// <returns>resulting modification</returns>
+        /// <summary>
+        /// The reflection about the line through <paramref name="axisPoint"/> with the direction
+        /// <paramref name="axisDirection"/>. Points on that line stay where they are.
+        /// </summary>
+        /// <param name="axisPoint">a point on the mirror axis</param>
+        /// <param name="axisDirection">the direction of the mirror axis, must not be a null vector</param>
+        public static ModOp2D Reflect(GeoPoint2D axisPoint, GeoVector2D axisDirection)
+        {
+            GeoVector2D dir = axisDirection.Normalized;
+            // The reflection about a line through the origin with the unit direction (dx, dy):
+            //   [ dx*dx - dy*dy      2*dx*dy     ]
+            //   [    2*dx*dy      dy*dy - dx*dx  ]
+            // and a translation that keeps axisPoint fixed.
+            ModOp2D res;
+            res.Matrix00 = dir.x * dir.x - dir.y * dir.y;
+            res.Matrix01 = 2 * dir.x * dir.y;
+            res.Matrix10 = res.Matrix01;
+            res.Matrix11 = -res.Matrix00;
+            res.Matrix02 = axisPoint.x - (res.Matrix00 * axisPoint.x + res.Matrix01 * axisPoint.y);
+            res.Matrix12 = axisPoint.y - (res.Matrix10 * axisPoint.x + res.Matrix11 * axisPoint.y);
+            return res;
+        }
         public static ModOp2D Rotate(GeoPoint2D Center, SweepAngle Rotation)
         {
             ModOp2D res;

@@ -1430,6 +1430,97 @@ namespace CADability.Curve2D
             return res.ToArray();
         }
 
+        /// <summary>
+        /// Returns a copy of this path with all its vertices replaced by arcs of the given radius. A
+        /// vertex where the two segments meet tangentially, or where the arc would not fit, is left as
+        /// it is. For a closed path the vertex between the last and the first segment is rounded as well.
+        /// </summary>
+        /// <param name="radius">radius of the rounding arcs</param>
+        public Path2D RoundVertices(double radius)
+        {
+            List<ICurve2D> resCurves = new List<ICurve2D>();
+            Flatten();
+            for (int i = 0; i < subCurves.Length; i++) resCurves.Add(subCurves[i].Clone());
+            for (int i = 0; i < resCurves.Count; i++)
+            {
+                int next = i + 1;
+                if (next >= resCurves.Count)
+                {
+                    if (IsClosed) next = 0;
+                    else break;
+                }
+                GeoVector2D diri = resCurves[i].EndDirection;
+                GeoVector2D dirn = resCurves[next].StartDirection;
+                double dd = radius;
+                // the normalized cross product tells which way the path bends, and how sharply
+                double dir = (diri.x * dirn.y - diri.y * dirn.x) / (resCurves[i].Length * resCurves[next].Length);
+                if (Math.Abs(dir) < 1e-3) continue; // tangential, there is no vertex to round
+                if (dir > 0.0) dd = -dd;
+                // the arc touches both segments, so its center sits where the two parallels meet
+                ICurve2D p1 = resCurves[i].Parallel(dd, false, Precision.eps, 0.0);
+                ICurve2D p2 = resCurves[next].Parallel(dd, false, Precision.eps, 0.0);
+                if (p1 == null || p2 == null) continue;
+                GeoPoint2DWithParameter[] ips = p1.Intersect(p2);
+                double minDist = double.MaxValue;
+                int found = -1;
+                for (int j = 0; j < ips.Length; ++j)
+                {
+                    if (ips[j].par1 >= 0.0 && ips[j].par1 <= 1.0 && ips[j].par2 >= 0.0 && ips[j].par2 <= 1.0)
+                    {
+                        double d = ips[j].p | resCurves[i].EndPoint;
+                        if (d < minDist)
+                        {
+                            minDist = d;
+                            found = j;
+                        }
+                    }
+                }
+                if (found >= 0)
+                {
+                    ICurve2D c1 = resCurves[i].Trim(0.0, ips[found].par1);
+                    ICurve2D c2 = resCurves[next].Trim(ips[found].par2, 1.0);
+                    if (c1 != null && c2 != null)
+                    {
+                        Arc2D a = new Arc2D(ips[found].p, radius, c1.EndPoint, c2.StartPoint, dd < 0);
+                        resCurves[i] = c1;
+                        resCurves[next] = c2;
+                        resCurves.Insert(next, a);
+                        ++i; // skip the arc that was just inserted
+                    }
+                }
+            }
+            return new Path2D(resCurves.ToArray());
+        }
+
+        /// <summary>
+        /// Creates a closed rectangle with rounded corners around <paramref name="center"/>, rotated by
+        /// <paramref name="rotation"/> about that center.
+        /// </summary>
+        public static Path2D CreateRoundedRectangle(GeoPoint2D center, double width, double height, double cornerRadius, SweepAngle rotation)
+        {
+            if (cornerRadius > width / 2 || cornerRadius > height / 2) return null; // the corners would overlap
+            GeoPoint2D[] vtx = new GeoPoint2D[4];
+            GeoVector2D dx = cornerRadius * GeoVector2D.XAxis;
+            GeoVector2D dy = cornerRadius * GeoVector2D.YAxis;
+            // the four rectangle vertices, counterclockwise from the bottom left
+            vtx[0] = new GeoPoint2D(center.x - width / 2, center.y - height / 2);
+            vtx[1] = new GeoPoint2D(center.x + width / 2, center.y - height / 2);
+            vtx[2] = new GeoPoint2D(center.x + width / 2, center.y + height / 2);
+            vtx[3] = new GeoPoint2D(center.x - width / 2, center.y + height / 2);
+            List<ICurve2D> res = new List<ICurve2D>();
+            res.Add(new Line2D(vtx[0] + dx, vtx[1] - dx));
+            res.Add(new Arc2D(vtx[1] - dx + dy, cornerRadius, vtx[1] - dx, vtx[1] + dy, true));
+            res.Add(new Line2D(vtx[1] + dy, vtx[2] - dy));
+            res.Add(new Arc2D(vtx[2] - dy - dx, cornerRadius, vtx[2] - dy, vtx[2] - dx, true));
+            res.Add(new Line2D(vtx[2] - dx, vtx[3] + dx));
+            res.Add(new Arc2D(vtx[3] + dx - dy, cornerRadius, vtx[3] + dx, vtx[3] - dy, true));
+            res.Add(new Line2D(vtx[3] - dy, vtx[0] + dy));
+            res.Add(new Arc2D(vtx[0] + dy + dx, cornerRadius, vtx[0] + dy, vtx[0] + dx, true));
+            Path2D resPath = new Path2D(res.ToArray(), true);
+            if (rotation != 0.0) resPath = resPath.GetModified(ModOp2D.Rotate(center, rotation)) as Path2D;
+            return resPath;
+        }
+
         private Path2D SubPath(int startSegment, int lastSegment)
         {
             ICurve2D[] sub = new ICurve2D[lastSegment - startSegment];

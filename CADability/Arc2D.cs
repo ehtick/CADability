@@ -478,6 +478,15 @@ namespace CADability.Curve2D
             sweep = -sweep;
         }
         /// <summary>
+        /// Keeps start and end point but uses the complementary part of the full circle: an arc that
+        /// sweeps counterclockwise becomes the clockwise arc between the same two points and vice versa.
+        /// </summary>
+        public void Complement()
+        {
+            if (sweep < 0) sweep = sweep + 2 * Math.PI;
+            else sweep = sweep - 2 * Math.PI;
+        }
+        /// <summary>
         /// Overrides <see cref="CADability.Curve2D.GeneralCurve2D.Trim (double, double)"/>
         /// </summary>
         /// <param name="startPos"></param>

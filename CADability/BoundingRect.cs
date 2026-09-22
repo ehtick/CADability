@@ -182,6 +182,26 @@ namespace CADability
             if (p.y > Top) Top = p.y;
         }
         /// <summary>
+        /// Adapts the size of this bounding rectangle to include the provided x value, leaving the
+        /// vertical extent untouched. Also works fine with an empty rectangle.
+        /// </summary>
+        /// <param name="x">x value to be included</param>
+        public void MinMaxWidth(double x)
+        {
+            if (x < Left) Left = x;
+            if (x > Right) Right = x;
+        }
+        /// <summary>
+        /// Adapts the size of this bounding rectangle to include the provided y value, leaving the
+        /// horizontal extent untouched. Also works fine with an empty rectangle.
+        /// </summary>
+        /// <param name="y">y value to be included</param>
+        public void MinMaxHeight(double y)
+        {
+            if (y < Bottom) Bottom = y;
+            if (y > Top) Top = y;
+        }
+        /// <summary>
         /// Adapts the size of this bounding rectangle to include the provided points.
         /// </summary>
         /// <param name="p">Points to be included</param>
@@ -650,6 +670,65 @@ namespace CADability
             if (rect.Left >= Right) return false;
             if (rect.Bottom >= Top) return false;
             if (rect.Top <= Bottom) return false;
+            return true;
+        }
+        /// <summary>
+        /// Clips the infinite line, which is defined by <paramref name="location"/> and
+        /// <paramref name="direction"/>, to this rectangle. The line is the set of points
+        /// location + t*direction, t being any real number. Returns the parameters t of the two points
+        /// where the line enters and leaves this rectangle.
+        /// </summary>
+        /// <param name="location">a point on the line</param>
+        /// <param name="direction">the direction of the line, must not be a null vector</param>
+        /// <param name="startParameter">parameter where the line enters this rectangle</param>
+        /// <param name="endParameter">parameter where the line leaves this rectangle</param>
+        /// <returns>true, if the line intersects this rectangle</returns>
+        public bool ClipLine(GeoPoint2D location, GeoVector2D direction, out double startParameter, out double endParameter)
+        {   // Liang-Barsky: the line is clipped against the four half planes defined by the sides
+            startParameter = endParameter = 0.0;
+            if (IsEmpty() || direction.IsNullVector()) return false;
+            double tmin = double.NegativeInfinity;
+            double tmax = double.PositiveInfinity;
+            // the "p" values are the (signed) rates at which the line approaches a boundary,
+            // the "q" values are the (signed) distances of location from that boundary
+            double[] p = new double[] { -direction.x, direction.x, -direction.y, direction.y };
+            double[] q = new double[] { location.x - Left, Right - location.x, location.y - Bottom, Top - location.y };
+            for (int i = 0; i < 4; i++)
+            {
+                if (p[i] == 0.0)
+                {   // parallel to this boundary: completely inside or completely outside the half plane
+                    if (q[i] < 0.0) return false;
+                }
+                else
+                {
+                    double t = q[i] / p[i];
+                    if (p[i] < 0.0) { if (t > tmin) tmin = t; } // here the line enters the half plane
+                    else { if (t < tmax) tmax = t; } // here the line leaves the half plane
+                    if (tmin > tmax) return false;
+                }
+            }
+            if (double.IsInfinity(tmin) || double.IsInfinity(tmax)) return false; // only with an unbounded rectangle
+            startParameter = tmin;
+            endParameter = tmax;
+            return true;
+        }
+        /// <summary>
+        /// Clips the infinite line, which is defined by <paramref name="location"/> and
+        /// <paramref name="direction"/>, to this rectangle and returns the two points where it enters and
+        /// leaves. If the line only touches a corner, both points are identical.
+        /// </summary>
+        /// <param name="location">a point on the line</param>
+        /// <param name="direction">the direction of the line, must not be a null vector</param>
+        /// <param name="startPoint">the point where the line enters this rectangle</param>
+        /// <param name="endPoint">the point where the line leaves this rectangle</param>
+        /// <returns>true, if the line intersects this rectangle</returns>
+        public bool ClipLine(GeoPoint2D location, GeoVector2D direction, out GeoPoint2D startPoint, out GeoPoint2D endPoint)
+        {
+            startPoint = endPoint = GeoPoint2D.Origin;
+            double startParameter, endParameter;
+            if (!ClipLine(location, direction, out startParameter, out endParameter)) return false;
+            startPoint = location + startParameter * direction;
+            endPoint = location + endParameter * direction;
             return true;
         }
 #if DEBUG
