@@ -248,6 +248,20 @@ namespace CADability
             }
             return false;
         }
+        /// <summary>
+        /// Determines whether all points lie on a straight line. The points are expected to be ordered
+        /// from start to end, the line is the connection of the first and the last one.
+        /// </summary>
+        /// <param name="pnts">the points to test, at least two</param>
+        /// <returns>true, if all points are colinear</returns>
+        public static bool IsColinear(GeoPoint2D[] pnts)
+        {
+            for (int i = 1; i < pnts.Length - 1; i++)
+            {
+                if (!IsPointOnLine(pnts[i], pnts[0], pnts[pnts.Length - 1])) return false;
+            }
+            return true;
+        }
         public static bool IsPointOnLine(GeoPoint2D testPoint, GeoPoint2D startPoint, GeoPoint2D endPoint)
         {
             if (Math.Abs(Geometry.DistPL(testPoint, startPoint, endPoint)) < eps)

@@ -58,6 +58,9 @@ namespace CADability.Curve2D
         private double parameterEpsilon; // ein epsilon, welches sich auf den Parameter bezieht. Abbruch für Iterationen
         private double distanceEpsilon; // ein epsilon, welches sich auf die Ausdehnung bezieht. Abbruch für Iterationen
         WeakReference<ExplicitPCurve2D> explicitPCurve2D;
+        // Length approximates the curve by arcs on every call, which is far too expensive to repeat.
+        // Negative means "not computed yet"; InvalidateCache resets it.
+        private double length = -1.0;
 
         private void InvalidateCache()
         {
@@ -69,6 +72,7 @@ namespace CADability.Curve2D
             nubs = null;
             nurbs = null;
             explicitPCurve2D = null;
+            length = -1.0;
             Init();
         }
         private void MakeFlat()
@@ -475,15 +479,17 @@ namespace CADability.Curve2D
         }
         private void Init()
         {
+            length = -1.0; // poles, knots or the parameter range may have changed
             try
             {
                 RepairHighMultiplicities();
                 MakeFlat(); // es gibt immer auch die flachen
+                // The second derivatives are kept. Nurbs.CurveDeriv2 rebuilds the whole pyramid of
+                // derivative control points whenever they are missing and drops it again on the way out,
+                // so clearing them here made every single PointDirAt2 call pay for the full setup - and
+                // GetInflectionPoints asks for it on a grid over all knot spans.
                 if (nubs != null) nubs.InitDeriv2();
                 else nurbs.InitDeriv2();
-                // MakeTriangulation();
-                if (nubs != null) nubs.ClearDeriv2();
-                else nurbs.ClearDeriv2();
             }
             catch (System.ArithmeticException)
             {
@@ -634,6 +640,7 @@ namespace CADability.Curve2D
             {
                 this.startParam = sp;
                 this.endParam = ep;
+                length = -1.0; // a different parameter range is a different length
             }
         }
 
@@ -962,9 +969,7 @@ namespace CADability.Curve2D
             // statt Init(); 
             nubs.InitDeriv1();
 
-            nubs.InitDeriv2();
-            //MakeTriangulation();
-            nubs.ClearDeriv2();
+            nubs.InitDeriv2(); // kept, see Init()
 
             parameterEpsilon = Math.Max(Math.Abs(startParam), Math.Abs(endParam)) * 1e-14;
             BoundingRect ext = BoundingRect.EmptyBoundingRect;
@@ -1023,9 +1028,7 @@ namespace CADability.Curve2D
             // statt Init();
             nubs.InitDeriv1();
 
-            nubs.InitDeriv2();
-            //MakeTriangulation();
-            nubs.ClearDeriv2();
+            nubs.InitDeriv2(); // kept, see Init()
 
             parameterEpsilon = Math.Max(Math.Abs(startParam), Math.Abs(endParam)) * 1e-14;
             BoundingRect ext = BoundingRect.EmptyBoundingRect;
@@ -1136,6 +1139,11 @@ namespace CADability.Curve2D
             // knots have spans that turn too much, so the coarse triangle test rejects them and only
             // the knot points (notably the curve start/end) register as hits. Subdivide such spans by
             // turning angle so the resulting triangles stay tight enough to bound the curve.
+            // GeneralCurve2D.MakeTriangulation meanwhile guarantees that enclosure for every curve
+            // type, so this is no longer what carries it there. It stays because the other overload of
+            // GetTriangulationPoints does NOT go through MakeTriangulation: SurfaceOfRevolution and
+            // HelicalSurface take their u steps straight from these knots, and GeneralCurve takes its
+            // parameter steps from them.
             const double maxSpanAngle = Math.PI / 4.0; // 45° per sub-span
             List<double> res = new List<double>(tknots.Length);
             GeoVector2D d0 = DirectionAtParam(tknots[0]);
@@ -1784,10 +1792,12 @@ namespace CADability.Curve2D
                 //				}
                 //				catch
                 //				{
+                if (length >= 0.0) return length; // computed before and nothing changed since
                 try
                 {
                     ICurve2D cv = this.Approximate(true, -poles.Length);
-                    return cv.Length;
+                    length = cv.Length;
+                    return length;
                 }
                 catch (Exception e)
                 {
@@ -2755,6 +2765,75 @@ namespace CADability.Curve2D
                 deriv2 = (GeoVector2D)ndir2;
             }
             return true;
+        }
+        /// <summary>
+        /// Overrides <see cref="CADability.Curve2D.GeneralCurve2D.GetInflectionPoints ()"/>.
+        /// The base class has to approximate the second derivative by a difference of DirectionAt; this
+        /// class has it exactly from the NURBS evaluation, so the sign changes of x'*y'' - y'*x'' are
+        /// found without that error term. The scan runs over the knot spans, subdivided, because the
+        /// curvature numerator of a span of degree d is a polynomial of degree 2*d-3 and can change sign
+        /// more than once inside one span.
+        /// </summary>
+        public override double[] GetInflectionPoints()
+        {
+            if (nubs == null && nurbs == null) Init();
+            const int subdivisions = 8;
+            List<double> res = new List<double>();
+            if (endParam <= startParam) return res.ToArray();
+
+            Func<double, double> f = delegate (double u)
+            {
+                GeoPoint2D point;
+                GeoVector2D dir1, dir2;
+                PointDirAt2(u, out point, out dir1, out dir2);
+                return dir1.x * dir2.y - dir1.y * dir2.x;
+            };
+
+            // scan grid over all knot spans
+            List<double> grid = new List<double>();
+            for (int i = 0; i < knots.Length - 1; ++i)
+            {
+                if (knots[i + 1] <= knots[i]) continue;
+                if (grid.Count == 0) grid.Add(knots[i]);
+                for (int k = 1; k <= subdivisions; k++)
+                {
+                    grid.Add(knots[i] + (knots[i + 1] - knots[i]) * k / (double)subdivisions);
+                }
+            }
+            if (grid.Count < 2) return res.ToArray();
+
+            double[] values = new double[grid.Count];
+            double scale = 0.0;
+            for (int i = 0; i < grid.Count; i++)
+            {
+                values[i] = f(grid[i]);
+                if (double.IsNaN(values[i])) values[i] = 0.0;
+                scale = Math.Max(scale, Math.Abs(values[i]));
+            }
+            if (scale <= 0.0) return res.ToArray(); // a straight line has no inflection point
+            double noise = scale * 1e-8;
+
+            for (int i = 1; i < grid.Count; i++)
+            {
+                if ((values[i - 1] < 0) == (values[i] < 0)) continue;
+                if (Math.Abs(values[i - 1]) < noise && Math.Abs(values[i]) < noise) continue;
+                try
+                {
+                    double root = MathNet.Numerics.RootFinding.Brent.FindRoot(f, grid[i - 1], grid[i],
+                        Math.Max(Math.Abs(startParam), Math.Abs(endParam)) * 1e-9, 100);
+                    double step = Math.Max(1e-12, (grid[i] - grid[i - 1]) * 1e-3);
+                    if (f(root - step) * f(root + step) < 0)
+                    {   // PointAt and the result of this method use a position normalized to 0...1
+                        res.Add((root - startParam) / (endParam - startParam));
+                    }
+                }
+                catch (Exception e)
+                {
+                    if (e is System.Threading.ThreadAbortException) throw;
+                    // no usable root in this span
+                }
+            }
+            return res.ToArray();
         }
         public override double GetArea()
         {
