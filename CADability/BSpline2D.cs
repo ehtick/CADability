@@ -928,17 +928,13 @@ namespace CADability.Curve2D
         private static BSpline2D FromSamples(List<GeoPoint2D> points, List<double> parameters)
         {
             if (points.Count < 2) return null;
-            // The Nurbs constructor expects the parameters of the points 1..n-1 and places the FIRST point
-            // at parameter 0.0 unconditionally, so the range has to be shifted to start there - otherwise
-            // the first span becomes an extrapolation over the whole offset. The resulting knot range is
-            // 0...(max-min), which is what the normalized position of PointAt runs over anyway.
-            double offset = parameters[0];
-            double[] k = new double[parameters.Count - 1];
-            for (int i = 1; i < parameters.Count; i++) k[i - 1] = parameters[i] - offset;
             try
             {
+                // Interpolation at exactly these parameters, so the knot range of the result is the
+                // parameter range that was sampled and PointAt runs over it linearly.
+                int degree = Math.Min(3, points.Count - 1);
                 Nurbs<GeoPoint2D, GeoPoint2DPole> nubs =
-                    new Nurbs<GeoPoint2D, GeoPoint2DPole>(3, points.ToArray(), k, false);
+                    new Nurbs<GeoPoint2D, GeoPoint2DPole>(points, parameters, degree);
                 return new BSpline2D(nubs);
             }
             catch (Exception e)
