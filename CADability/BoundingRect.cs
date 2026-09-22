@@ -326,10 +326,28 @@ namespace CADability
             }
         }
         /// <summary>
-        /// Inflates the rectangle by a factor relative to its <see cref="BoundingRect.Size"/>.
+        /// Inflates the rectangle by a factor relative to its <see cref="BoundingRect.Size"/>, which is
+        /// the sum of width and height. All four sides are moved out by the same amount, so the shorter
+        /// axis is enlarged much more than the longer one: a 1 x 0.001 rectangle inflated by 1.01 keeps
+        /// its width but becomes twenty times as high.
         /// </summary>
-        /// <param name="factor"></param>
+        /// <param name="factor">the relative amount to grow by, 1.0 leaves the rectangle unchanged</param>
+        [Obsolete("Ambiguous name. Use InflateRelativeToSize for exactly this behaviour, or " +
+            "InflateRelativeToWidthHeight to grow each axis in proportion to itself.")]
         public void InflateRelative(double factor)
+        {
+            InflateRelativeToSize(factor);
+        }
+        /// <summary>
+        /// Inflates the rectangle by a factor relative to its <see cref="BoundingRect.Size"/>, which is
+        /// the sum of width and height. All four sides are moved out by the same amount.
+        /// <para>
+        /// NOTE: the amount is applied to BOTH sides of an axis, so the extent grows by twice it - a
+        /// square inflated by 1.01 comes out 1.04 times as wide, not 1.01.
+        /// </para>
+        /// </summary>
+        /// <param name="factor">the relative amount to grow by, 1.0 leaves the rectangle unchanged</param>
+        public void InflateRelativeToSize(double factor)
         {
             double d = Size * factor - Size;
             if (!IsEmpty())
@@ -338,6 +356,31 @@ namespace CADability
                 Right += d;
                 Bottom -= d;
                 Top += d;
+            }
+        }
+        /// <summary>
+        /// Inflates the rectangle by a factor, each axis in proportion to its own extent: the horizontal
+        /// sides move out by a multiple of <see cref="Width"/>, the vertical ones by a multiple of
+        /// <see cref="Height"/>. Unlike <see cref="InflateRelativeToSize"/> the shape of the rectangle is
+        /// preserved, which is what a rectangle in a parameter space usually needs - there width and
+        /// height measure unrelated quantities and are routinely orders of magnitude apart.
+        /// <para>
+        /// NOTE: the amount is applied to BOTH sides of an axis, so the extent grows by twice it - a
+        /// rectangle inflated by 1.01 comes out 1.02 times as wide, not 1.01. This matches
+        /// <see cref="InflateRelativeToSize"/> and the same method in the ShapeIt fork.
+        /// </para>
+        /// </summary>
+        /// <param name="factor">the relative amount to grow by, 1.0 leaves the rectangle unchanged</param>
+        public void InflateRelativeToWidthHeight(double factor)
+        {
+            double dx = Width * factor - Width;
+            double dy = Height * factor - Height;
+            if (!IsEmpty())
+            {
+                Left -= dx;
+                Right += dx;
+                Bottom -= dy;
+                Top += dy;
             }
         }
         /// <summary>
