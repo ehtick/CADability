@@ -706,6 +706,25 @@ namespace CADability.Curve2D
         /// Overrides <see cref="CADability.Curve2D.GeneralCurve2D.GetArea ()"/>
         /// </summary>
         /// <returns></returns>
+        /// <summary>
+        /// Overrides <see cref="CADability.Curve2D.Circle2D.GetAreaFromPoint (GeoPoint2D)"/>.
+        /// <para>
+        /// Without this override an arc inherits the implementation of the full circle, which returns the
+        /// area of the WHOLE circle when the reference point lies inside it and zero when it does not -
+        /// neither has anything to do with the area an arc sweeps out. A 90 degree arc of radius 5 seen
+        /// from (1,1) came back as 19.63 instead of 14.63.
+        /// </para>
+        /// <para>
+        /// The reference point enters the integrand only linearly, so its contribution telescopes to the
+        /// end points: <c>A(p) = A(0) - (p.x*(ey-sy) - p.y*(ex-sx)) / 2</c>. Written out for a straight
+        /// segment this is exactly <see cref="Line2D.GetAreaFromPoint"/>.
+        /// </para>
+        /// </summary>
+        public override double GetAreaFromPoint(GeoPoint2D p)
+        {
+            GeoPoint2D sp = StartPoint, ep = EndPoint;
+            return GetArea() - (p.x * (ep.y - sp.y) - p.y * (ep.x - sp.x)) / 2.0;
+        }
         public override double GetArea()
         {   // es geht um die Fläche vom NUllpunkt aus gesehen
             GeoPoint2D startPoint = StartPoint;

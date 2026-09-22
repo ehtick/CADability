@@ -835,6 +835,99 @@ namespace CADability.Curve2D
 			return res;
 		}
 		/// <summary>
+		/// Refines the parameter <paramref name="u"/>, used as a start value, so that
+		/// <see cref="PointAt"/> gets as close as possible to <paramref name="p"/>. The counterpart of
+		/// <see cref="GeoObject.GeneralCurve.PositionOf(GeoObject.ICurve, GeoPoint, ref double)"/> for a
+		/// 2d curve, for callers that already know roughly where the foot point sits - unlike
+		/// <see cref="PositionOf(GeoPoint2D)"/> it does not search the triangulation first.
+		/// </summary>
+		/// <param name="p">the point to project onto the curve</param>
+		/// <param name="u">start value on input, refined parameter on output; only written on success</param>
+		/// <returns>true, if a minimum was found</returns>
+		public bool PositionOf(GeoPoint2D p, ref double u)
+		{
+			// Minimize |curve(u) - p|^2 on [0,1]. At a minimum the connection to the curve stands
+			// perpendicular on its direction, so this is the scalar root of
+			//     f(u) = (curve(u) - p) * DirectionAt(u)
+			// and the Gauss-Newton step on it is f(u) / |DirectionAt(u)|^2. The curvature term of the
+			// exact Newton step is dropped: no second derivative is available on this class, only PointAt
+			// and DirectionAt. Nothing is allocated here - a general minimizer would need vectors, a
+			// Jacobian and a factorization per call to take the same step.
+			const int maxIterations = 40;
+			const int maxHalvings = 10;
+			const double parameterTolerance = 1e-14;
+
+			double position = Math.Max(0.0, Math.Min(1.0, u));
+			// Carried from iteration to iteration: the accepted candidate of the previous round is the
+			// current point of this one, and PointAt is the expensive call here - on a ProjectedCurve it
+			// is a surface projection.
+			GeoVector2D toCurrent = PointAt(position) - p;
+			double currentDistance = toCurrent * toCurrent;
+			bool converged = false;
+
+			for (int i = 0; i < maxIterations; i++)
+			{
+				GeoVector2D direction = DirectionAt(position);
+				double directionSquared = direction * direction;
+				// A stationary parameterization gives no direction to step in.
+				if (directionSquared < 1e-30) break;
+
+				double step = (toCurrent * direction) / directionSquared;
+				if (double.IsNaN(step) || double.IsInfinity(step)) break;
+
+				// Backtracking. The undamped step assumes the direction stays what it is between here and
+				// the root, and on a curve that bends away it overshoots. Halve until the distance really
+				// drops, which makes the whole iteration monotone: the result can never be worse than the
+				// start value.
+				double next = position;
+				double nextDistance = currentDistance;
+				GeoVector2D nextVector = toCurrent;
+				bool improved = false;
+				for (int halving = 0; halving <= maxHalvings; halving++)
+				{
+					// Once the step is down at the tolerance the distance only changes by rounding and
+					// halving further just buys another PointAt for nothing.
+					if (Math.Abs(step) < parameterTolerance) break;
+
+					double candidate = position - step;
+					if (candidate < 0.0) candidate = 0.0;
+					else if (candidate > 1.0) candidate = 1.0;
+
+					GeoVector2D toCandidate = PointAt(candidate) - p;
+					double candidateDistance = toCandidate * toCandidate;
+					if (candidateDistance <= currentDistance)
+					{
+						next = candidate;
+						nextDistance = candidateDistance;
+						nextVector = toCandidate;
+						improved = true;
+						break;
+					}
+					step *= 0.5;
+				}
+
+				// No step of any length got closer: as far as this iteration can tell this is the minimum.
+				// That includes a constrained one, where the step only ever points out of [0,1] and the
+				// clamp keeps returning the boundary.
+				if (!improved) { converged = true; break; }
+
+				double moved = Math.Abs(next - position);
+				position = next;
+				currentDistance = nextDistance;
+				toCurrent = nextVector;
+				if (moved < parameterTolerance)
+				{
+					converged = true;
+					break;
+				}
+			}
+
+			if (!converged) return false;
+			u = position;
+			return true;
+		}
+
+		/// <summary>
 		/// Implements <see cref="CADability.Curve2D.ICurve2D.PositionAtLength (double)"/>
 		/// </summary>
 		/// <param name="position"></param>
