@@ -1253,6 +1253,15 @@ namespace CADability
             // l1s + p1*l1dir == l2s + p2*l2dir + p3*xdir; // xdir ist die senkrechte zu beiden
             // p1*l1dir -p2*l2dir - p3*xdir == l2s - l1s
             // ACHTUNG: par2 jetzt mit richtigem Vorzeichen
+            // Parallel lines have a null vector as their cross product. Letting Norm() throw for that is
+            // expensive in a routine called this often, so the common case is tested for up front; the
+            // catch below stays as a backstop.
+            if ((l1Dir ^ l2Dir).IsNullVector())
+            {
+                par1 = double.MaxValue;
+                par2 = double.MaxValue;
+                return Geometry.DistPL(l2Start, l1Start, l1Dir);
+            }
             try
             {
                 GeoVector xdir = l1Dir ^ l2Dir;
@@ -1291,6 +1300,8 @@ namespace CADability
         /// <returns></returns>
         public static GeoPoint IntersectLL(GeoPoint l1Start, GeoVector l1Dir, GeoPoint l2Start, GeoVector l2Dir)
         {
+            // see DistLL: parallel lines are recognised before Norm() throws for them
+            if ((l1Dir ^ l2Dir).IsNullVector()) throw new GeometryException("trying to intersect parallel lines");
             try
             {
                 GeoVector xdir = l1Dir ^ l2Dir;
@@ -2135,6 +2146,29 @@ namespace CADability
                         res.Add(new GeoPoint2D(xx * cw - yy * sw + CenterE.x, xx * sw + yy * cw + CenterE.y));
                         xx = -Radius;
                         res.Add(new GeoPoint2D(xx * cw - yy * sw + CenterE.x, xx * sw + yy * cw + CenterE.y));
+                        return res.ToArray();
+                    }
+                    else
+                    {   // Concentric and not tangential: the general solution below divides by y0, which is
+                        // exactly 0 here (the swap further down puts the larger of |x0|, |y0| into y0), so it
+                        // would produce infinities and NaN and silently report no intersection at all.
+                        // Concentric is the one case that needs no iteration:
+                        //   x^2/a^2 + y^2/b^2 = 1  and  x^2 + y^2 = r^2  give
+                        //   x^2 = a^2*(r^2 - b^2)/(a^2 - b^2),  y^2 = b^2*(a^2 - r^2)/(a^2 - b^2).
+                        // a^2 != b^2 is guaranteed, a circular ellipse was handed to IntersectCC above.
+                        double aa = sqr(a), bb = sqr(b);
+                        double xx2 = aa * (rr - bb) / (aa - bb);
+                        double yy2 = bb * (aa - rr) / (aa - bb);
+                        if (xx2 < 0.0 || yy2 < 0.0) return new GeoPoint2D[0]; // the circle misses the ellipse
+                        double xx = Math.Sqrt(xx2);
+                        double yy = Math.Sqrt(yy2);
+                        List<GeoPoint2D> res = new List<GeoPoint2D>();
+                        for (int i = 0; i < 4; i++)
+                        {
+                            double sx = (i == 0 || i == 3) ? xx : -xx;
+                            double sy = (i < 2) ? yy : -yy;
+                            res.Add(new GeoPoint2D(sx * cw - sy * sw + CenterE.x, sx * sw + sy * cw + CenterE.y));
+                        }
                         return res.ToArray();
                     }
                 }

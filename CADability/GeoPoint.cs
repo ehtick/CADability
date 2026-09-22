@@ -1485,6 +1485,18 @@ namespace CADability
             this.y = v3.y;
         }
         public static implicit operator double[](GeoVector2D p) => new double[] { p.x, p.y };
+        /// <summary>
+        /// Returns true, when both components are ordinary numbers. A vector that failed to be computed
+        /// carries NaN or infinity, and every comparison against such a value is false, which lets a
+        /// broken value travel through an iteration unnoticed instead of stopping it.
+        /// </summary>
+        public bool IsValid
+        {
+            get
+            {
+                return !double.IsNaN(x) && !double.IsNaN(y) && !double.IsInfinity(x) && !double.IsInfinity(y);
+            }
+        }
         public void Norm()
         {
             if (Length <= 0.0) throw new GeoVectorException(GeoVectorException.tExceptionType.NullVector);

@@ -895,8 +895,13 @@ namespace CADability.Curve2D
         }
         internal override void GetTriangulationPoints(out GeoPoint2D[] interpol, out double[] interparam)
         {
-            int n = (int)Math.Floor(Math.Abs(sweep) / (Math.PI / 2.0)) + 1;
-            if (n == 1) n = 2;
+            // At least one subdivision per 90 degrees, so that a triangle of the triangulation can
+            // enclose its piece of the arc. Floor + 1 undercounts as soon as the quotient falls just
+            // short of a whole number, which a sweep assembled from two angles easily does
+            // (180 degrees arriving as 1.9999999999999996 gave a single segment for a half circle).
+            // Ceiling is the count that "at least every 90 degrees" asks for and rounds the safe way.
+            int n = (int)Math.Ceiling(Math.Abs(sweep) / (Math.PI / 2.0)) + 1;
+            if (n == 1) n = 2; // a sweep of exactly 0 still needs a start and an end point
             interparam = new double[n];
             for (int i = 0; i < n; i++)
             {

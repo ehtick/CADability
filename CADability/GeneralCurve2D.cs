@@ -1632,7 +1632,10 @@ namespace CADability.Curve2D
 			{   // here we are close enough to try with newton
 				par = (spar + epar) / 2.0;
 				int iterations = 20;
-				if (TryPointDeriv2At(par, out GeoPoint2D point, out GeoVector2D deriv1, out GeoVector2D deriv2))
+				// A NaN first derivative makes functionTolerance NaN, every comparison in the Newton
+				// iteration false, and the iteration runs its full count to return garbage. The slower
+				// but robust NewtonPerpendicular below handles those curves.
+				if (TryPointDeriv2At(par, out GeoPoint2D point, out GeoVector2D deriv1, out GeoVector2D deriv2) && deriv1.IsValid)
 				{
 					double stepTolerance = (epar - spar) * 1e-8;
 					double functionTolerance = (point | fromHere) * deriv1.Length * 1e-18;
