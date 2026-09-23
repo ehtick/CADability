@@ -874,7 +874,9 @@ namespace CADability.Shapes
 						pp[j] = (segment[i] as BSpline2D).PointAtParam(knots[j]);
 					}
 					Polyline2D p2d = new Polyline2D(pp);
-					return p2d.GetArea();
+					// the polygon through the knots is the rough area of this segment; it has to be added
+					// like the other segments, returning it here would ignore all remaining segments
+					a += p2d.GetArea();
 				}
 				else
 				{
@@ -1841,8 +1843,17 @@ namespace CADability.Shapes
 				for (int k = 0; k < segment.Count; k++)
 				{
 					GeoPoint2DWithParameter[] ip = segment[k].Intersect(fromHere - length * dir, fromHere + length * dir); // Mitte am Testpunkt, geht über alle segmente hinaus
+					Array.Sort(ip, delegate (GeoPoint2DWithParameter a, GeoPoint2DWithParameter b) { return a.par2.CompareTo(b.par2); });
 					for (int j = 0; j < ip.Length; j++)
 					{
+						if (j > 0 && Math.Abs(ip[j].par2 - ip[j - 1].par2) < 1e-10)
+						{   // GeneralCurve2D sometimes reports the same intersection twice. Counting it twice
+							// flips the parity this test is built on, so the point would be judged outside
+							// although it is inside. The array is sorted by par2 above so that duplicates
+							// are adjacent. par2 runs along the test ray, which is eight times the extent
+							// of the border long, so this tolerance is far below anything geometrically real.
+							continue;
+						}
 						if (Math.Abs(ip[j].par1) < 1e-6 || Math.Abs(1.0 - ip[j].par1) < 1e-6)
 						{   // Schnitt durch einen Eckpunkt ist schlecht
 							badPoint = true;

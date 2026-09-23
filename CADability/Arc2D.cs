@@ -478,6 +478,15 @@ namespace CADability.Curve2D
             sweep = -sweep;
         }
         /// <summary>
+        /// Keeps start and end point but uses the complementary part of the full circle: an arc that
+        /// sweeps counterclockwise becomes the clockwise arc between the same two points and vice versa.
+        /// </summary>
+        public void Complement()
+        {
+            if (sweep < 0) sweep = sweep + 2 * Math.PI;
+            else sweep = sweep - 2 * Math.PI;
+        }
+        /// <summary>
         /// Overrides <see cref="CADability.Curve2D.GeneralCurve2D.Trim (double, double)"/>
         /// </summary>
         /// <param name="startPos"></param>
@@ -706,6 +715,25 @@ namespace CADability.Curve2D
         /// Overrides <see cref="CADability.Curve2D.GeneralCurve2D.GetArea ()"/>
         /// </summary>
         /// <returns></returns>
+        /// <summary>
+        /// Overrides <see cref="CADability.Curve2D.Circle2D.GetAreaFromPoint (GeoPoint2D)"/>.
+        /// <para>
+        /// Without this override an arc inherits the implementation of the full circle, which returns the
+        /// area of the WHOLE circle when the reference point lies inside it and zero when it does not -
+        /// neither has anything to do with the area an arc sweeps out. A 90 degree arc of radius 5 seen
+        /// from (1,1) came back as 19.63 instead of 14.63.
+        /// </para>
+        /// <para>
+        /// The reference point enters the integrand only linearly, so its contribution telescopes to the
+        /// end points: <c>A(p) = A(0) - (p.x*(ey-sy) - p.y*(ex-sx)) / 2</c>. Written out for a straight
+        /// segment this is exactly <see cref="Line2D.GetAreaFromPoint"/>.
+        /// </para>
+        /// </summary>
+        public override double GetAreaFromPoint(GeoPoint2D p)
+        {
+            GeoPoint2D sp = StartPoint, ep = EndPoint;
+            return GetArea() - (p.x * (ep.y - sp.y) - p.y * (ep.x - sp.x)) / 2.0;
+        }
         public override double GetArea()
         {   // es geht um die Fläche vom NUllpunkt aus gesehen
             GeoPoint2D startPoint = StartPoint;
@@ -895,8 +923,13 @@ namespace CADability.Curve2D
         }
         internal override void GetTriangulationPoints(out GeoPoint2D[] interpol, out double[] interparam)
         {
-            int n = (int)Math.Floor(Math.Abs(sweep) / (Math.PI / 2.0)) + 1;
-            if (n == 1) n = 2;
+            // At least one subdivision per 90 degrees, so that a triangle of the triangulation can
+            // enclose its piece of the arc. Floor + 1 undercounts as soon as the quotient falls just
+            // short of a whole number, which a sweep assembled from two angles easily does
+            // (180 degrees arriving as 1.9999999999999996 gave a single segment for a half circle).
+            // Ceiling is the count that "at least every 90 degrees" asks for and rounds the safe way.
+            int n = (int)Math.Ceiling(Math.Abs(sweep) / (Math.PI / 2.0)) + 1;
+            if (n == 1) n = 2; // a sweep of exactly 0 still needs a start and an end point
             interparam = new double[n];
             for (int i = 0; i < n; i++)
             {

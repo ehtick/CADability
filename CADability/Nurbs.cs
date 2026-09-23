@@ -1,4 +1,5 @@
-﻿using MathNet.Numerics.LinearAlgebra.Double;
+﻿using MathNet.Numerics.LinearAlgebra;
+using MathNet.Numerics.LinearAlgebra.Double;
 using MathNet.Numerics.LinearAlgebra.Factorization;
 using System;
 using System.Collections.Generic;
@@ -1155,7 +1156,7 @@ namespace CADability
                 double u;
                 if (i < 1) u = 0.0;
                 else u = k[i - 1];
-                int span = FindSpanU(uknots.Length - degree - 1, degree, u);
+                int span = FindSpanU(uknots.Length - degree - 1, u);
                 DersBasisFuns(span, u, udegree, 1, out bf);
                 // die inneren Zeilen der Matrix sind um 1 nach rechts verschoben, hier mit ++span implementiert
                 //if (i > 0 && i < throughpoints.Length-1) ++span;
@@ -1335,7 +1336,7 @@ namespace CADability
                 double u;
                 if (i == 0) u = 0.0;
                 else u = k[i - 1];
-                int span = FindSpanU(uknots.Length - degree - 1, degree, u);
+                int span = FindSpanU(uknots.Length - degree - 1, u);
                 BasisFunsU(span, u, degree, out bf);
                 for (int j = 0; j < bf.Length; ++j)
                 {
@@ -1380,6 +1381,108 @@ namespace CADability
         }
 
 
+
+        /// <summary>
+        /// Global curve interpolation through <paramref name="points"/> at exactly the given
+        /// <paramref name="parameters"/> (NURBS book A9.1). The knot vector is built from the parameters
+        /// by averaging, then the interpolation matrix of the basis functions is solved for the poles.
+        /// <para>
+        /// The other interpolating constructor, Nurbs(degree, throughpoints, k, periodic), computes the
+        /// same thing but expects only the parameters of the points 1..n-1 and places the first point at
+        /// 0.0 unconditionally. This one takes the parameter of every point, including the first, and
+        /// leaves the range where the caller put it.
+        /// </para>
+        /// </summary>
+        /// <param name="points">the points to interpolate, at least two</param>
+        /// <param name="parameters">their parameters, ascending, same count as the points</param>
+        /// <param name="degree">the degree of the resulting curve, at most points.Count-1</param>
+        public Nurbs(IReadOnlyList<T> points, IReadOnlyList<double> parameters, int degree)
+        {
+            calc = new C();
+            if (points == null) throw new ArgumentNullException(nameof(points));
+            if (parameters == null) throw new ArgumentNullException(nameof(parameters));
+            if (points.Count != parameters.Count) throw new ArgumentException("points and parameters must have the same length.");
+            if (points.Count < 2) throw new ArgumentException("at least 2 points are needed.");
+            if (degree < 1) throw new ArgumentOutOfRangeException(nameof(degree), "degree must be >= 1.");
+
+            int m = points.Count - 1; // index of the last data point
+            int p = degree;
+            if (p > m) throw new ArgumentException("degree " + p + " is too high for " + (m + 1) + " points, it must be at most points.Count-1.");
+            this.udegree = degree;
+
+            // 1) clamped knot vector, averaged from the given parameters
+            int n = m; // interpolation: as many poles as data points
+            uknots = BuildKnotVectorByAveraging(parameters, p);
+
+            // 2) the interpolation matrix A[j,i] = N_{i,p}(u_j)
+            Matrix<double> A = Matrix<double>.Build.Dense(m + 1, n + 1, 0.0);
+            for (int j = 0; j <= m; j++)
+            {
+                double uj = parameters[j];
+                // clamp against rounding that carries a parameter minimally outside the knot range
+                if (uj < uknots[0]) uj = uknots[0];
+                if (uj > uknots[uknots.Length - 1]) uj = uknots[uknots.Length - 1];
+
+                int span = FindSpanU(uknots.Length - degree - 1, uj);
+                double[] N;
+                BasisFunsU(span, uj, p, out N); // N[0..p] belongs to i = span-p .. span
+
+                int i0 = span - p;
+                for (int r = 0; r <= p; r++)
+                {
+                    int i = i0 + r;
+                    if (i >= 0 && i <= n) A[j, i] = N[r];
+                }
+            }
+
+            // 3) right hand side, one component at a time
+            int dim = calc.GetComponents(points[0]).Length;
+            Vector<double>[] q = new Vector<double>[dim];
+            for (int d = 0; d < dim; d++) q[d] = Vector<double>.Build.Dense(m + 1);
+            for (int j = 0; j <= m; j++)
+            {
+                double[] c = calc.GetComponents(points[j]);
+                for (int d = 0; d < dim; d++) q[d][j] = c[d];
+            }
+
+            // 4) solve A * P = Q for the poles
+            LU<double> lu = A.LU();
+            Vector<double>[] pc = new Vector<double>[dim];
+            for (int d = 0; d < dim; d++) pc[d] = lu.Solve(q[d]);
+
+            poles = new T[n + 1];
+            for (int i = 0; i <= n; i++)
+            {
+                double[] component = new double[dim];
+                for (int d = 0; d < dim; d++) component[d] = pc[d][i];
+                calc.SetComponents(ref poles[i], component);
+            }
+        }
+
+        /// <summary>
+        /// The clamped knot vector for an interpolation through points with the given parameters
+        /// (NURBS book eq. 9.8): the p+1 knots at either end repeat the first and the last parameter,
+        /// each interior knot is the average of p consecutive parameters.
+        /// </summary>
+        private double[] BuildKnotVectorByAveraging(IReadOnlyList<double> u, int p)
+        {
+            int m = u.Count - 1;
+            int n = m; // interpolation: n == m
+            double[] U = new double[n + p + 2];
+
+            for (int i = 0; i <= p; i++) U[i] = u[0]; // clamped at the start
+
+            for (int j = 1; j <= m - p; j++) // interior knots
+            {
+                double s = 0.0;
+                for (int i = j; i <= j + p - 1; i++) s += u[i];
+                U[j + p] = s / p;
+            }
+
+            for (int i = m + 1; i <= m + p + 1; i++) U[i] = u[m]; // clamped at the end
+
+            return U;
+        }
 
         public Nurbs(int degree, T[] throughpoints, double[] k, bool periodic)
         {   // im Buch Seite 369
@@ -1481,7 +1584,7 @@ namespace CADability
                 double u;
                 if (i == 0) u = 0.0;
                 else u = k[i - 1];
-                int span = FindSpanU(uknots.Length - degree - 1, degree, u);
+                int span = FindSpanU(uknots.Length - degree - 1, u);
                 BasisFunsU(span, u, degree, out bf);
                 for (int j = 0; j < bf.Length; ++j)
                 {
@@ -1545,53 +1648,51 @@ namespace CADability
 #endif
         }
 
-        int FindSpanU(int high, int low, double u)
+        /// <summary>
+        /// The knot span that contains <paramref name="u"/>, i.e. the index i with
+        /// knots[i] &lt;= u &lt; knots[i+1] (NURBS book p. 68, A2.1), clamped to the range the curve is
+        /// defined on. The span returned is never empty: an empty one would make
+        /// <see cref="BasisFunsU"/> divide by zero.
+        /// </summary>
+        /// <param name="knots">the knot vector to search</param>
+        /// <param name="degree">the degree, which is also the index of the first usable span</param>
+        /// <param name="high">the index one past the last usable span</param>
+        /// <param name="u">the parameter to locate, may lie outside the range</param>
+        private static int FindSpan(double[] knots, int degree, int high, double u)
         {
-            //if ((u >= uknots[high] && high < uknots.Length - 1) || (u <= uknots[low] && low > 0)) return FindSpanU(uknots.Length - 1, 0, u); // ggf. bei v nachziehen!
-            if (u >= uknots[high])
-            {
-                int res = high - 1; // this was -1, but in one case we need res = high. any cases?
-                // im folgenden eine Notbremse, die nur bei periodischen Splines benötigt wird:
-                // vermutlich wid das mit einer ordentlichen Implementierung von unclamped unnötig
-                while (res > low && uknots[res] == uknots[res + 1]) --res;
-                if (res < low) res = low;
-                return res;
+            if (u >= knots[high])
+            {   // at or beyond the upper bound: return the last non-empty span
+                int span = high - 1;
+                while (span > degree && knots[span] == knots[span + 1]) --span;
+                return span;
             }
-            // versuchsweise auch für Werte außerhalb arbeiten
-            // if (u >= uknots[high]) return high-1;
-            if (u <= uknots[low]) return low;
+            if (u <= knots[degree])
+            {   // at or below the lower bound: return the first non-empty span
+                int span = degree;
+                while (span < high - 1 && knots[span] == knots[span + 1]) ++span;
+                return span;
+            }
+            // binary search as in the NURBS book; it terminates because knots[degree] < u < knots[high],
+            // and it cannot return an empty span, because u cannot satisfy knots[mid] <= u < knots[mid+1]
+            // when knots[mid] == knots[mid+1]
+            int low = degree;
             int mid = (low + high) / 2;
-            while (u < uknots[mid] || u >= uknots[mid + 1])
+            while (u < knots[mid] || u >= knots[mid + 1])
             {
-                if (u < uknots[mid]) high = mid;
+                if (u < knots[mid]) high = mid;
                 else low = mid;
                 mid = (low + high) / 2;
-                if (low == high) return low;
             }
             return mid;
         }
-        int FindSpanV(int high, int low, double v)
+
+        int FindSpanU(int high, double u)
         {
-            if (v >= vknots[high])
-            {
-                int res = high - 1; // Sonderfall
-                // im folgenden eine Notbremse, die nur bei periodischen Splines benötigt wird:
-                // vermutlich wid das mit einer ordentlichen Implementierung von unclamped unnötig
-                while (res > 0 && vknots[res] == vknots[res + 1]) --res;
-                return res;
-            }
-            // versuchsweise auch für Werte außerhalb arbeiten
-            // if (v >= vknots[high]) return high-1;
-            if (v <= vknots[low]) return low;
-            int mid = (low + high) / 2;
-            while (v < vknots[mid] || v >= vknots[mid + 1])
-            {
-                if (v < vknots[mid]) high = mid;
-                else low = mid;
-                mid = (low + high) / 2;
-                if (low == high) return low;
-            }
-            return mid;
+            return FindSpan(uknots, udegree, high, u);
+        }
+        int FindSpanV(int high, double v)
+        {
+            return FindSpan(vknots, vdegree, high, v);
         }
         unsafe void BasisFunsU(int span, double u, int deg, out double[] N)
         {
@@ -2030,7 +2131,7 @@ namespace CADability
         {
             int span;
             int n = uknots.Length - udegree - 1;
-            span = FindSpanU(n, udegree, u);
+            span = FindSpanU(n, u);
             double[] N; // N sollte mit stackalloc alokiert werden, da es nur lokal gebraucht wird
             BasisFunsU(span, u, udegree, out N);
             T res = new T();
@@ -2051,7 +2152,7 @@ namespace CADability
             StringBuilder res = new StringBuilder();
             int span;
             int n = uknots.Length - udegree - 1;
-            span = FindSpanU(n, udegree, u);
+            span = FindSpanU(n, u);
             string[] Nstr;
             BasisFunsString(span, u, udegree, out Nstr);
             string uknotstring = "[";
@@ -2084,7 +2185,7 @@ namespace CADability
         {
             string[] Nstr;
             int n = uknots.Length - udegree - 1;
-            int span = FindSpanU(n, udegree, u);
+            int span = FindSpanU(n, u);
             BasisFunsString(span, u, udegree, out Nstr);
             string[] res = new string[Nstr.Length];
             for (int i = 0; i < res.Length; i++) res[i] = "0";
@@ -2102,7 +2203,7 @@ namespace CADability
         {
             int span;
             int n = uknots.Length - udegree - 1;
-            span = FindSpanU(n, udegree, u);
+            span = FindSpanU(n, u);
             Polynom[] N; // N sollte mit stackalloc alokiert werden, da es nur lokal gebraucht wird
             BasisFunsU(span, udegree, out N, false);
             Polynom[] res = new Polynom[calc.GetComponents(poles[0]).Length];
@@ -2121,9 +2222,9 @@ namespace CADability
         public T SurfacePoint(double u, double v)
         {
             int n = uknots.Length - udegree - 1;
-            int uspan = FindSpanU(n, udegree, u);
+            int uspan = FindSpanU(n, u);
             int m = vknots.Length - vdegree - 1;
-            int vspan = FindSpanV(m, vdegree, v);
+            int vspan = FindSpanV(m, v);
             double[] Nu; // n sollte mit stackalloc alokiert werden, da es nur lokal gebraucht wird
             BasisFunsU(uspan, u, udegree, out Nu);
             double[] Nv; // n sollte mit stackalloc alokiert werden, da es nur lokal gebraucht wird
@@ -2145,9 +2246,9 @@ namespace CADability
         internal Polynom[] SurfacePointPolynom(double u, double v)
         {   // wir brauchen keine rationalen Polynome, einfache Polynome reichen. Die Division in BasisFunsU/V sind immer konstante
             int n = uknots.Length - udegree - 1;
-            int uspan = FindSpanU(n, udegree, u);
+            int uspan = FindSpanU(n, u);
             int m = vknots.Length - vdegree - 1;
-            int vspan = FindSpanV(m, vdegree, v);
+            int vspan = FindSpanV(m, v);
             Polynom[] Nu; // n sollte mit stackalloc alokiert werden, da es nur lokal gebraucht wird
             BasisFunsU(uspan, udegree, out Nu, true);
             Polynom[] Nv; // n sollte mit stackalloc alokiert werden, da es nur lokal gebraucht wird
@@ -2184,7 +2285,7 @@ namespace CADability
         {
             T[] vpoles = new T[numVPoles];
             int n = uknots.Length - udegree - 1;
-            int uspan = FindSpanU(n, udegree, u);
+            int uspan = FindSpanU(n, u);
             double[] Nu; // n sollte mit stackalloc alokiert werden, da es nur lokal gebraucht wird
             BasisFunsU(uspan, u, udegree, out Nu);
             int uind = uspan - udegree;
@@ -2209,7 +2310,7 @@ namespace CADability
         {
             T[] upoles = new T[numUPoles];
             int n = vknots.Length - vdegree - 1;
-            int vspan = FindSpanV(n, vdegree, v);
+            int vspan = FindSpanV(n, v);
             double[] Nv; // n sollte mit stackalloc alokiert werden, da es nur lokal gebraucht wird
             BasisFunsV(vspan, v, vdegree, out Nv);
             int vind = vspan - vdegree;
@@ -2246,9 +2347,9 @@ namespace CADability
             //}
 
             int n = uknots.Length - udegree - 1;
-            int uspan = FindSpanU(n, udegree, u);
+            int uspan = FindSpanU(n, u);
             int m = vknots.Length - vdegree - 1;
-            int vspan = FindSpanV(m, vdegree, v);
+            int vspan = FindSpanV(m, v);
             double[][] Nu, Nv;
             AllBasisFunsU(uspan, u, out Nu);
             AllBasisFunsV(vspan, v, out Nv);
@@ -2334,9 +2435,9 @@ namespace CADability
         public void SurfaceDeriv1(double u, double v, out T pointAtUV, out T derivU, out T derivV)
         {   // Seite 137 bin sind alle 1
             int n = uknots.Length - udegree - 1;
-            int uspan = FindSpanU(n, udegree, u);
+            int uspan = FindSpanU(n, u);
             int m = vknots.Length - vdegree - 1;
-            int vspan = FindSpanV(m, vdegree, v);
+            int vspan = FindSpanV(m, v);
             double[] Nu; // n sollte mit stackalloc alokiert werden, da es nur lokal gebraucht wird
             BasisFunsU(uspan, u, udegree, out Nu);
             double[] Nv; // n sollte mit stackalloc alokiert werden, da es nur lokal gebraucht wird
@@ -2394,7 +2495,7 @@ namespace CADability
             // für NURBS mit Weight, (also rationale) muss noch mit RatCurveDerivs1 nachgebessert werden
             if (deriv1 == null) InitDeriv1();
             int n = uknots.Length - udegree - 1;
-            int span = FindSpanU(n, udegree, u);
+            int span = FindSpanU(n, u);
             double[] N;
             BasisFunsU(span, u, udegree, out N);
             pointAtU = new T();
@@ -2424,7 +2525,7 @@ namespace CADability
             }
             int d = 2;
             int n = uknots.Length - udegree - 1;
-            int span = FindSpanU(n, udegree, u);
+            int span = FindSpanU(n, u);
             double[][] N;
             NBasisFuns(span, 3, u, out N);
             int du = Math.Min(d, udegree);
@@ -2462,7 +2563,7 @@ namespace CADability
         }
         public int FindIndex(double u)
         {   // liefert den Index für den Parameter
-            int k = FindSpanU(uknots.Length - udegree - 1, udegree, u);
+            int k = FindSpanU(uknots.Length - udegree - 1, u);
             return k; // evtl noch Verbesserung wie in CurveKnotIns
         }
         public int CurveKnotIns(double u, int r, out double[] newknots, out T[] newpoles)
@@ -2475,7 +2576,7 @@ namespace CADability
             // das Ergebnis ist der Index, an dem u eingefügt wurde und wo somit die knots und poles aufzuteilen
             // sind, wenn es denn zum splitten verwendet wird.
             int np = poles.Length - 1; // könnte auch "knots.Length - degree - 1" sein, oder?
-            int k = FindSpanU(uknots.Length - udegree, udegree, u);
+            int k = FindSpanU(uknots.Length - udegree, u);
             if (u != uknots[k] && u - uknots[k] < (uknots[uknots.Length - 1] - uknots[0]) * 1e-8)
             {   // hier wird geschummelt: wenn fast exakt auf einem Knoten eingefügt werden soll, so wird
                 // der knoten manipuliert und ein bisschen zurechtgerückt
@@ -3022,7 +3123,7 @@ namespace CADability
                 {
                     double[] bf;
                     double u = throughpointsparam[i];
-                    int span = (degree % 2 == 1) ? (degree + i) : FindSpanU(uknots.Length - degree - 1, degree, u);
+                    int span = (degree % 2 == 1) ? (degree + i) : FindSpanU(uknots.Length - degree - 1, u);
                     BasisFunsU(span, u, degree, out bf);
                     for (int j = 0; j < bf.Length; ++j)
                     {
@@ -3148,7 +3249,7 @@ namespace CADability
                 {
                     double[] bf;
                     double u = throughpointsparam[i];
-                    int span = FindSpanU(uknots.Length - degree - 1, degree, u);
+                    int span = FindSpanU(uknots.Length - degree - 1, u);
                     BasisFunsU(span, u, degree, out bf);
                     for (int j = 0; j < bf.Length; ++j)
                     {
@@ -3275,7 +3376,7 @@ namespace CADability
             {
                 double[] bf;
                 double u = throughpointsparam[i - 1];
-                int span = FindSpanU(uknots.Length - degree - 1, degree, u);
+                int span = FindSpanU(uknots.Length - degree - 1, u);
                 BasisFunsU(span, u, degree, out bf);
                 for (int j = 0; j < bf.Length; ++j)
                 {
@@ -3414,7 +3515,7 @@ namespace CADability
             {
                 double[,] bf;
                 double u = throughpointsparam[i];
-                int span = FindSpanU(uknots.Length - degree - 1, degree, u);
+                int span = FindSpanU(uknots.Length - degree - 1, u);
                 DersBasisFuns(span, u, udegree, 1, out bf);
                 for (int j = 0; j <= degree; ++j)
                 {

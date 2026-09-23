@@ -98,7 +98,7 @@ namespace CADability.Curve2D
             }
             else
             {
-                if (toAdd.Length > Precision.eps) addTo.Add(toAdd);
+                if (toAdd != null && toAdd.Length > Precision.eps) addTo.Add(toAdd);
             }
         }
         private void AddFlattend(ArrayList addTo, ICurve2D[] toAdd)
@@ -458,7 +458,9 @@ namespace CADability.Curve2D
         public ICurve2D[] Split(double[] positions)
         {
             Array.Sort(positions);
-            ICurve2D[] res = new ICurve2D[positions.Length + 1];
+            // Duplicate positions, and positions at 0.0 or 1.0, describe empty intervals. Trim returns null
+            // or a degenerate curve for those, and a fixed size array would hand them to the caller.
+            List<ICurve2D> res = new List<ICurve2D>(positions.Length + 1);
             for (int i = 0; i <= positions.Length; i++)
             {
                 double spar, epar;
@@ -466,9 +468,11 @@ namespace CADability.Curve2D
                 else spar = positions[i - 1];
                 if (i == positions.Length) epar = 1.0;
                 else epar = positions[i];
-                res[i] = Trim(spar, epar);
+                if (spar >= epar - 1e-6) continue;
+                ICurve2D trimmed = Trim(spar, epar);
+                if (trimmed != null && trimmed.Length > Precision.eps) res.Add(trimmed);
             }
-            return res;
+            return res.ToArray();
         }
         /// <summary>
         /// Implements <see cref="CADability.Curve2D.ICurve2D.Distance (GeoPoint2D)"/>
@@ -545,18 +549,18 @@ namespace CADability.Curve2D
                 double par2 = ep - sind + 1;
                 ICurve2D curve = subCurves[sind - 1].Clone();
                 curve = curve.Trim(par1, par2);
-                res.Add(curve);
+                if (curve != null) res.Add(curve);
             }
             else
             {
                 if (sind > 0)
                 {
                     double par = sp - sind + 1;
-                    if (par < 1.0)
+                    if (par < 1.0 - 1e-6)
                     {
                         ICurve2D curve = subCurves[sind - 1].Clone();
                         curve = curve.Trim(par, 1.0);
-                        res.Add(curve);
+                        if (curve != null) res.Add(curve);
                     }
                 }
                 for (int i = sind; i < eind; ++i)
@@ -566,11 +570,11 @@ namespace CADability.Curve2D
                 if (eind < subCurves.Length)
                 {
                     double par = ep - eind;
-                    if (par > 0.0)
+                    if (par > 1e-6)
                     {
                         ICurve2D curve = subCurves[eind].Clone();
                         curve = curve.Trim(0.0, par);
-                        res.Add(curve);
+                        if (curve != null) res.Add(curve);
                     }
                 }
             }
@@ -601,13 +605,18 @@ namespace CADability.Curve2D
             List<ICurve2D> res = new List<ICurve2D>();
             //res.Add(par[0]);
             List<int> splitPositions = new List<int>(); // there is no connection between res[i].EndPoint and res[i+1].StartPoint
-            for (int i = 0; i < par.Length - 1; ++i)
+            // A closed path has one more corner than it has gaps between consecutive segments: the one
+            // between the last and the first segment. Stopping at par.Length - 1 leaves that corner
+            // untreated and the parallel curve of a closed path comes back open.
+            for (int i = 0; i < par.Length; ++i)
             {
+                int nexti = (i + 1) % par.Length;
                 res.Add(par[i]); // maybe this curve will be shortened
-                if (!Precision.IsEqual(par[i].EndPoint, par[i + 1].StartPoint))
+                if (nexti == 0 && !IsClosed) continue; // the last segment of an open path has no successor
+                if (!Precision.IsEqual(par[i].EndPoint, par[nexti].StartPoint))
                 {	// not tangential
                     GeoVector2D endtan = subCurves[i].EndDirection;
-                    GeoVector2D starttan = subCurves[i + 1].StartDirection;
+                    GeoVector2D starttan = subCurves[nexti].StartDirection;
                     bool connected = false;
                     double b = GeoVector2D.Orientation(starttan, endtan);
                     if ((b > 0) != (Dist > 0))
@@ -618,27 +627,27 @@ namespace CADability.Curve2D
                         if (a >= roundAngle)
                         {   // make two lines, because the angle is obtuse
                             GeoPoint2D ip;
-                            if (Geometry.IntersectLL(par[i].EndPoint, endtan, par[i + 1].StartPoint, starttan, out ip))
+                            if (Geometry.IntersectLL(par[i].EndPoint, endtan, par[nexti].StartPoint, starttan, out ip))
                             {
                                 double pos1 = Geometry.LinePar(par[i].EndPoint, endtan, ip);
-                                double pos2 = Geometry.LinePar(par[i + 1].StartPoint, starttan, ip);
+                                double pos2 = Geometry.LinePar(par[nexti].StartPoint, starttan, ip);
                                 if (pos1 > 0 || pos2 < 0)
                                 {
                                     res.Add(new Line2D(par[i].EndPoint, ip));
-                                    res.Add(new Line2D(ip, par[i + 1].StartPoint));
+                                    res.Add(new Line2D(ip, par[nexti].StartPoint));
                                     connected = true;
                                 }
                             }
                         }
                         if (!connected)
                         {   // runde Ecken
-                            Arc2D a2d = new Arc2D(subCurves[i].EndPoint, Math.Abs(Dist), par[i].EndPoint, par[i + 1].StartPoint, Dist > 0.0);
+                            Arc2D a2d = new Arc2D(subCurves[i].EndPoint, Math.Abs(Dist), par[i].EndPoint, par[nexti].StartPoint, Dist > 0.0);
                             res.Add(a2d);
                         }
                     }
                     else
                     {   // it bends to the inside: either we can shorten the two segments i,i+1 or we have to leave the parallel path open at these ends and fix it later
-                        GeoPoint2DWithParameter[] ips = par[i].Intersect(par[i + 1]);
+                        GeoPoint2DWithParameter[] ips = par[i].Intersect(par[nexti]);
                         if (ips.Length > 0)
                         {
                             int ind = 0;
@@ -655,7 +664,7 @@ namespace CADability.Curve2D
                                 }
                             }
                             par[i].EndPoint = ips[ind].p;
-                            par[i + 1].StartPoint = ips[ind].p;
+                            par[nexti].StartPoint = ips[ind].p;
                         }
                         else
                         {
@@ -667,7 +676,6 @@ namespace CADability.Curve2D
                 {   // i,i+1 is a tangetnial connection, so the parallel curves are also connected
                 }
             }
-            res.Add(par[par.Length - 1]); // last segment
             if (splitPositions.Count > 0)
             {
                 // res contains several non connected paths
@@ -683,9 +691,10 @@ namespace CADability.Curve2D
                     res.CopyTo(si, subList, 0, ei - si);
                     nonconnected[i] = new Path2D(subList);
                 }
-                for (int i = 0; i < nonconnected.Length - 1; i++)
+                for (int i = 0; i < nonconnected.Length; i++)
                 {
-                    int j = i + 1;
+                    int j = (i + 1) % nonconnected.Length;
+                    if (j != 0 || IsClosed) // only a closed path has to be joined up again at its end
                     {
                         GeoPoint2DWithParameter[] ips = nonconnected[i].Intersect(nonconnected[j]);
                         if (ips.Length > 0)
@@ -1419,6 +1428,97 @@ namespace CADability.Curve2D
             }
             res.Add(clone.SubPath(startSegment, clone.SubCurvesCount));
             return res.ToArray();
+        }
+
+        /// <summary>
+        /// Returns a copy of this path with all its vertices replaced by arcs of the given radius. A
+        /// vertex where the two segments meet tangentially, or where the arc would not fit, is left as
+        /// it is. For a closed path the vertex between the last and the first segment is rounded as well.
+        /// </summary>
+        /// <param name="radius">radius of the rounding arcs</param>
+        public Path2D RoundVertices(double radius)
+        {
+            List<ICurve2D> resCurves = new List<ICurve2D>();
+            Flatten();
+            for (int i = 0; i < subCurves.Length; i++) resCurves.Add(subCurves[i].Clone());
+            for (int i = 0; i < resCurves.Count; i++)
+            {
+                int next = i + 1;
+                if (next >= resCurves.Count)
+                {
+                    if (IsClosed) next = 0;
+                    else break;
+                }
+                GeoVector2D diri = resCurves[i].EndDirection;
+                GeoVector2D dirn = resCurves[next].StartDirection;
+                double dd = radius;
+                // the normalized cross product tells which way the path bends, and how sharply
+                double dir = (diri.x * dirn.y - diri.y * dirn.x) / (resCurves[i].Length * resCurves[next].Length);
+                if (Math.Abs(dir) < 1e-3) continue; // tangential, there is no vertex to round
+                if (dir > 0.0) dd = -dd;
+                // the arc touches both segments, so its center sits where the two parallels meet
+                ICurve2D p1 = resCurves[i].Parallel(dd, false, Precision.eps, 0.0);
+                ICurve2D p2 = resCurves[next].Parallel(dd, false, Precision.eps, 0.0);
+                if (p1 == null || p2 == null) continue;
+                GeoPoint2DWithParameter[] ips = p1.Intersect(p2);
+                double minDist = double.MaxValue;
+                int found = -1;
+                for (int j = 0; j < ips.Length; ++j)
+                {
+                    if (ips[j].par1 >= 0.0 && ips[j].par1 <= 1.0 && ips[j].par2 >= 0.0 && ips[j].par2 <= 1.0)
+                    {
+                        double d = ips[j].p | resCurves[i].EndPoint;
+                        if (d < minDist)
+                        {
+                            minDist = d;
+                            found = j;
+                        }
+                    }
+                }
+                if (found >= 0)
+                {
+                    ICurve2D c1 = resCurves[i].Trim(0.0, ips[found].par1);
+                    ICurve2D c2 = resCurves[next].Trim(ips[found].par2, 1.0);
+                    if (c1 != null && c2 != null)
+                    {
+                        Arc2D a = new Arc2D(ips[found].p, radius, c1.EndPoint, c2.StartPoint, dd < 0);
+                        resCurves[i] = c1;
+                        resCurves[next] = c2;
+                        resCurves.Insert(next, a);
+                        ++i; // skip the arc that was just inserted
+                    }
+                }
+            }
+            return new Path2D(resCurves.ToArray());
+        }
+
+        /// <summary>
+        /// Creates a closed rectangle with rounded corners around <paramref name="center"/>, rotated by
+        /// <paramref name="rotation"/> about that center.
+        /// </summary>
+        public static Path2D CreateRoundedRectangle(GeoPoint2D center, double width, double height, double cornerRadius, SweepAngle rotation)
+        {
+            if (cornerRadius > width / 2 || cornerRadius > height / 2) return null; // the corners would overlap
+            GeoPoint2D[] vtx = new GeoPoint2D[4];
+            GeoVector2D dx = cornerRadius * GeoVector2D.XAxis;
+            GeoVector2D dy = cornerRadius * GeoVector2D.YAxis;
+            // the four rectangle vertices, counterclockwise from the bottom left
+            vtx[0] = new GeoPoint2D(center.x - width / 2, center.y - height / 2);
+            vtx[1] = new GeoPoint2D(center.x + width / 2, center.y - height / 2);
+            vtx[2] = new GeoPoint2D(center.x + width / 2, center.y + height / 2);
+            vtx[3] = new GeoPoint2D(center.x - width / 2, center.y + height / 2);
+            List<ICurve2D> res = new List<ICurve2D>();
+            res.Add(new Line2D(vtx[0] + dx, vtx[1] - dx));
+            res.Add(new Arc2D(vtx[1] - dx + dy, cornerRadius, vtx[1] - dx, vtx[1] + dy, true));
+            res.Add(new Line2D(vtx[1] + dy, vtx[2] - dy));
+            res.Add(new Arc2D(vtx[2] - dy - dx, cornerRadius, vtx[2] - dy, vtx[2] - dx, true));
+            res.Add(new Line2D(vtx[2] - dx, vtx[3] + dx));
+            res.Add(new Arc2D(vtx[3] + dx - dy, cornerRadius, vtx[3] + dx, vtx[3] - dy, true));
+            res.Add(new Line2D(vtx[3] - dy, vtx[0] + dy));
+            res.Add(new Arc2D(vtx[0] + dy + dx, cornerRadius, vtx[0] + dy, vtx[0] + dx, true));
+            Path2D resPath = new Path2D(res.ToArray(), true);
+            if (rotation != 0.0) resPath = resPath.GetModified(ModOp2D.Rotate(center, rotation)) as Path2D;
+            return resPath;
         }
 
         private Path2D SubPath(int startSegment, int lastSegment)

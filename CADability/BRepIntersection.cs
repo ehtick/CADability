@@ -2803,9 +2803,11 @@ namespace CADability
                         BoundingRect extarc1 = arc1.GetProjectedCurve(plnarc1).GetExtent();
                         BoundingRect extarc2 = arc2.GetProjectedCurve(plnarc2).GetExtent();
                         BoundingRect extarc3 = arc3.GetProjectedCurve(plnarc3).GetExtent();
-                        extarc1.InflateRelative(1.1); // to make intersection and only return the clipped fillet
-                        extarc2.InflateRelative(1.1);
-                        extarc3.InflateRelative(1.1);
+                        // to make intersection and only return the clipped fillet; proportional per
+                        // axis, a flat arc must not have its short side blown up out of proportion
+                        extarc1.InflateRelativeToWidthHeight(1.1);
+                        extarc2.InflateRelativeToWidthHeight(1.1);
+                        extarc3.InflateRelativeToWidthHeight(1.1);
                         Face clipFace1 = Face.MakeFace(new PlaneSurface(plnarc1), extarc1);
                         Face clipFace2 = Face.MakeFace(new PlaneSurface(plnarc2), extarc2);
                         Face clipFace3 = Face.MakeFace(new PlaneSurface(plnarc3), extarc3);

@@ -3317,7 +3317,11 @@ namespace CADability.GeoObject
                 ext.Top += vSpan * 1e-4;
             }
             BoundingRect ext1 = ext;
-            ext1.InflateRelative(1.01);
+            // Proportional per axis: ext is a uv patch, whose width and height measure unrelated
+            // quantities and are often orders of magnitude apart. ext1 is only used to test whether a
+            // singularity lies inside, and an inflation tied to the sum of both would accept poles far
+            // outside the patch in whichever direction happens to be the smaller one.
+            ext1.InflateRelativeToWidthHeight(1.01);
             bool ok = false; // when there are poles, we only need to make it non-periodic, when the pole is inside the extent
             double[] us = GetUSingularities();
             double[] vs = GetVSingularities();

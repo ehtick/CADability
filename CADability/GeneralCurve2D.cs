@@ -451,6 +451,82 @@ namespace CADability.Curve2D
 				interpol[i] = PointAt(interparam[i]);
 			}
 		}
+		/// <summary>
+		/// Merges the triangulation basis with additional parameters that must become base points, keeping
+		/// the result sorted. Both inputs are sorted; parameters closer than <paramref name="tolerance"/>
+		/// are taken as the same one and the basis value wins.
+		/// </summary>
+		private void MergeIntoBasis(ref GeoPoint2D[] points, ref GeoVector2D[] directions, ref double[] parameters,
+			double[] additional, double tolerance)
+		{
+			List<GeoPoint2D> mergedPoints = new List<GeoPoint2D>(points.Length + additional.Length);
+			List<GeoVector2D> mergedDirections = new List<GeoVector2D>(points.Length + additional.Length);
+			List<double> mergedParameters = new List<double>(points.Length + additional.Length);
+			int i = 0, j = 0;
+			while (i < parameters.Length || j < additional.Length)
+			{
+				bool takeBasis;
+				if (i >= parameters.Length) takeBasis = false;
+				else if (j >= additional.Length) takeBasis = true;
+				else takeBasis = parameters[i] <= additional[j];
+				if (takeBasis)
+				{
+					if (j < additional.Length && Math.Abs(parameters[i] - additional[j]) < tolerance) j++; // the same point
+					mergedParameters.Add(parameters[i]);
+					mergedPoints.Add(points[i]);
+					mergedDirections.Add(directions[i]);
+					i++;
+				}
+				else
+				{
+					mergedParameters.Add(additional[j]);
+					mergedPoints.Add(PointAt(additional[j]));
+					mergedDirections.Add(DirectionAt(additional[j]));
+					j++;
+				}
+			}
+			points = mergedPoints.ToArray();
+			directions = mergedDirections.ToArray();
+			parameters = mergedParameters.ToArray();
+		}
+
+		/// <summary>
+		/// A triangle of the triangulation only encloses its piece of the curve while the curve stays on
+		/// one side of the base line and the two tangents meet in front of it. Both hold once the tangents
+		/// at the ends deviate little enough from the secant. Segments that deviate more are halved until
+		/// they do, or until <paramref name="maxPoints"/> is reached.
+		/// </summary>
+		private void SubdivideUntilFlat(ref GeoPoint2D[] points, ref GeoVector2D[] directions, ref double[] parameters,
+			int maxPoints)
+		{
+			const double maxDeviation = Math.PI / 3.0; // 60 degrees between a tangent and the secant
+			List<GeoPoint2D> workPoints = new List<GeoPoint2D>(points);
+			List<GeoVector2D> workDirections = new List<GeoVector2D>(directions);
+			List<double> workParameters = new List<double>(parameters);
+			for (int i = 1; i < workParameters.Count; i++)
+			{
+				if (workParameters.Count >= maxPoints) break;
+				GeoVector2D secant = workPoints[i] - workPoints[i - 1];
+				// A null direction or a degenerate secant says nothing about the deviation, and halving
+				// a segment does not make a double point go away.
+				if (secant.Length < 1e-6 || workDirections[i - 1].Length < 1e-6 || workDirections[i].Length < 1e-6) continue;
+				double atStart = Math.Abs(new SweepAngle(workDirections[i - 1], secant).Radian);
+				double atEnd = Math.Abs(new SweepAngle(workDirections[i], secant).Radian);
+				if (atStart > maxDeviation || atEnd > maxDeviation)
+				{
+					double middleParameter = 0.5 * (workParameters[i] + workParameters[i - 1]);
+					if (middleParameter <= workParameters[i - 1] || middleParameter >= workParameters[i]) continue; // no room left
+					workParameters.Insert(i, middleParameter);
+					workPoints.Insert(i, PointAt(middleParameter));
+					workDirections.Insert(i, DirectionAt(middleParameter));
+					i--; // the first half has to be examined as well
+				}
+			}
+			points = workPoints.ToArray();
+			directions = workDirections.ToArray();
+			parameters = workParameters.ToArray();
+		}
+
 		protected void MakeTriangulation()
 		{   // ACHTUNG: Probleme sind hier Singularitäten und doppelte Punkte. Das muss noch überprüft werden
 			// am Besten mit bösartigen BSplines (mehrfach identische Pole)
@@ -458,6 +534,21 @@ namespace CADability.Curve2D
 			GeoVector2D[] directions;
 			double[] parameters;
 			GetTriangulationBasis(out points, out directions, out parameters);
+			// The triangles are built on the assumption that there is no inflection point strictly inside a
+			// segment - a segment that contains one bends both ways and no triangle can enclose it. The
+			// inflection points used to be searched for inside the loop below, from the base points and
+			// tangents of two neighbouring segments, and the comment there already said it did not work
+			// well. They are now computed directly (see GetInflectionPoints) and made base points here.
+			double[] inflectionParameters = GetInflectionPoints();
+			if (inflectionParameters != null && inflectionParameters.Length > 0)
+			{
+				Array.Sort(inflectionParameters);
+				MergeIntoBasis(ref points, ref directions, ref parameters, inflectionParameters, 1e-9);
+			}
+			// Even without an inflection point a segment can turn too far for its triangle to enclose it -
+			// a free form spline with few knots does exactly that, and the coarse triangle test of HitTest
+			// then rejects the curve everywhere but at the base points themselves.
+			SubdivideUntilFlat(ref points, ref directions, ref parameters, 1000);
 #if DEBUG
 			DebuggerContainer dc1 = new DebuggerContainer();
 			try
@@ -491,50 +582,20 @@ namespace CADability.Curve2D
 			linterparam.Add(parameters[0]);
 			if (points.Length > 1)
 			{
-				GeoVector2D d = points[1] - points[0];
-				double z = d.x * directions[0].y - d.y * directions[0].x; // Z-Komponente des Kreuzprodukts
 				for (int i = 1; i < points.Length; ++i)
 				{
-					d = points[i] - points[i - 1];
-					z = d.x * directions[i - 1].y - d.y * directions[i - 1].x; // Z-Komponente des Kreuzprodukts
-					double z1 = d.x * directions[i].y - d.y * directions[i].x; // Z-Komponente des Kreuzprodukts
-					if (z * z1 > d.Length * 1e-3)
-					{   // hier könnte Wendepunkt sein, aber das funktioniert nicht gut
-						// ist halt kritisch bei fast geraden Kurven
-
-						double pi = FindInflectionPoint(points[i - 1], points[i], directions[i - 1], directions[i], parameters[i - 1], parameters[i]);
-						GeoPoint2D p0 = PointAt(pi);
-						linterpol.Add(p0);
-						linterparam.Add(pi);
-						GeoVector2D d0 = DirectionAt(pi);
-						linterdir.Add(d0);
+					GeoVector2D d = points[i] - points[i - 1];
+					if (!directions[i].IsNullVector() || !d.IsNullVector())
+					{
 						GeoPoint2D ip;
-						if (!Geometry.IntersectLL(points[i - 1], directions[i - 1], p0, d0, out ip))
+						if (!Geometry.IntersectLL(linterpol[linterpol.Count - 1], linterdir[linterdir.Count - 1], points[i], directions[i], out ip))
 							ip = new GeoPoint2D(points[i], points[i - 1]); // Mittelpunkt
 						ltringulation.Add(ip);
-
 						linterpol.Add(points[i]);
 						linterparam.Add(parameters[i]);
-						linterdir.Add(directions[i].Normalized);
-						if (!Geometry.IntersectLL(p0, d0, points[i], directions[i], out ip))
-							ip = new GeoPoint2D(points[i], points[i - 1]); // Mittelpunkt
-						ltringulation.Add(ip);
+						if (directions[i].IsNullVector()) linterdir.Add((points[i] - points[i - 1]).Normalized);
+						else linterdir.Add(directions[i].Normalized);
 					}
-					else
-					{   // gekapselt wg. ip
-						if (!directions[i].IsNullVector() || !d.IsNullVector())
-						{
-							GeoPoint2D ip;
-							if (!Geometry.IntersectLL(linterpol[linterpol.Count - 1], linterdir[linterdir.Count - 1], points[i], directions[i], out ip))
-								ip = new GeoPoint2D(points[i], points[i - 1]); // Mittelpunkt
-							ltringulation.Add(ip);
-							linterpol.Add(points[i]);
-							linterparam.Add(parameters[i]);
-							if (directions[i].IsNullVector()) linterdir.Add((points[i] - points[i - 1]).Normalized);
-							else linterdir.Add(directions[i].Normalized);
-						}
-					}
-					z = z1;
 				}
 			}
 			interpol = linterpol.ToArray();
@@ -585,52 +646,9 @@ namespace CADability.Curve2D
 			parameters = interparam.Clone() as double[];
 			vertices = tringulation.Clone() as GeoPoint2D[];
 		}
-		private double FindInflectionPoint(GeoPoint2D sp, GeoPoint2D ep, GeoVector2D sdir, GeoVector2D edir, double spar, double epar)
-		{
-			GeoVector2D dir = ep - sp;
-			double z0 = sdir.x * dir.y - sdir.y * dir.x;
-			double z3 = edir.x * dir.y - edir.y * dir.x;
-			bool up = (z0 + z3) < 0.0;
-			// Maximum- bzw Minimumsuche  für l und r
-			// geht nur mit 4 Punkten, nicht mit 3 wie bei der Bisektion
-			// und deshalb etwas langsamer
-			double par0 = spar;
-			//double par1 = (spar + epar) / 3.0;
-			//double par2 = 2.0 * (spar + epar) / 3.0;
-			double par1 = spar + (epar - spar) / 3.0;
-			double par2 = epar - (epar - spar) / 3.0;
-			double par3 = epar;
-			GeoVector2D dir0 = sdir;
-			GeoVector2D dir1 = DirectionAt(par1);
-			GeoVector2D dir2 = DirectionAt(par2);
-			GeoVector2D dir3 = edir;
-			double z1 = dir1.x * dir.y - dir1.y * dir.x;
-			double z2 = dir2.x * dir.y - dir2.y * dir.x;
-			while (par2 - par1 > 1e-7)
-			{
-				if ((up && z0 < z3) || (!up && z0 > z3))
-				{   // z0 eliminieren
-					z0 = z1;
-					dir0 = dir1;
-					par0 = par1;
-				}
-				else
-				{
-					z3 = z2;
-					dir3 = dir2;
-					par3 = par2;
-				}
-				par1 = par0 + (par3 - par0) / 3.0;
-				par2 = par3 - (par3 - par0) / 3.0;
-				//par1 = (par0 + par3) / 3.0;
-				//par2 = 2.0 * (par0 + par3) / 3.0;
-				dir1 = DirectionAt(par1);
-				dir2 = DirectionAt(par2);
-				z1 = dir1.x * dir.y - dir1.y * dir.x;
-				z2 = dir2.x * dir.y - dir2.y * dir.x;
-			}
-			return (par1 + par2) / 2.0;
-		}
+		// FindInflectionPoint, a four point bisection between two base points, used to live here. It was
+		// only ever called from the inflection point detection that MakeTriangulation no longer does;
+		// GetInflectionPoints finds the sign changes of the curvature numerator directly instead.
 #if DEBUG
 		internal DebuggerContainer DebugTriangulation
 		{
@@ -816,6 +834,99 @@ namespace CADability.Curve2D
 			}
 			return res;
 		}
+		/// <summary>
+		/// Refines the parameter <paramref name="u"/>, used as a start value, so that
+		/// <see cref="PointAt"/> gets as close as possible to <paramref name="p"/>. The counterpart of
+		/// <see cref="GeoObject.GeneralCurve.PositionOf(GeoObject.ICurve, GeoPoint, ref double)"/> for a
+		/// 2d curve, for callers that already know roughly where the foot point sits - unlike
+		/// <see cref="PositionOf(GeoPoint2D)"/> it does not search the triangulation first.
+		/// </summary>
+		/// <param name="p">the point to project onto the curve</param>
+		/// <param name="u">start value on input, refined parameter on output; only written on success</param>
+		/// <returns>true, if a minimum was found</returns>
+		public bool PositionOf(GeoPoint2D p, ref double u)
+		{
+			// Minimize |curve(u) - p|^2 on [0,1]. At a minimum the connection to the curve stands
+			// perpendicular on its direction, so this is the scalar root of
+			//     f(u) = (curve(u) - p) * DirectionAt(u)
+			// and the Gauss-Newton step on it is f(u) / |DirectionAt(u)|^2. The curvature term of the
+			// exact Newton step is dropped: no second derivative is available on this class, only PointAt
+			// and DirectionAt. Nothing is allocated here - a general minimizer would need vectors, a
+			// Jacobian and a factorization per call to take the same step.
+			const int maxIterations = 40;
+			const int maxHalvings = 10;
+			const double parameterTolerance = 1e-14;
+
+			double position = Math.Max(0.0, Math.Min(1.0, u));
+			// Carried from iteration to iteration: the accepted candidate of the previous round is the
+			// current point of this one, and PointAt is the expensive call here - on a ProjectedCurve it
+			// is a surface projection.
+			GeoVector2D toCurrent = PointAt(position) - p;
+			double currentDistance = toCurrent * toCurrent;
+			bool converged = false;
+
+			for (int i = 0; i < maxIterations; i++)
+			{
+				GeoVector2D direction = DirectionAt(position);
+				double directionSquared = direction * direction;
+				// A stationary parameterization gives no direction to step in.
+				if (directionSquared < 1e-30) break;
+
+				double step = (toCurrent * direction) / directionSquared;
+				if (double.IsNaN(step) || double.IsInfinity(step)) break;
+
+				// Backtracking. The undamped step assumes the direction stays what it is between here and
+				// the root, and on a curve that bends away it overshoots. Halve until the distance really
+				// drops, which makes the whole iteration monotone: the result can never be worse than the
+				// start value.
+				double next = position;
+				double nextDistance = currentDistance;
+				GeoVector2D nextVector = toCurrent;
+				bool improved = false;
+				for (int halving = 0; halving <= maxHalvings; halving++)
+				{
+					// Once the step is down at the tolerance the distance only changes by rounding and
+					// halving further just buys another PointAt for nothing.
+					if (Math.Abs(step) < parameterTolerance) break;
+
+					double candidate = position - step;
+					if (candidate < 0.0) candidate = 0.0;
+					else if (candidate > 1.0) candidate = 1.0;
+
+					GeoVector2D toCandidate = PointAt(candidate) - p;
+					double candidateDistance = toCandidate * toCandidate;
+					if (candidateDistance <= currentDistance)
+					{
+						next = candidate;
+						nextDistance = candidateDistance;
+						nextVector = toCandidate;
+						improved = true;
+						break;
+					}
+					step *= 0.5;
+				}
+
+				// No step of any length got closer: as far as this iteration can tell this is the minimum.
+				// That includes a constrained one, where the step only ever points out of [0,1] and the
+				// clamp keeps returning the boundary.
+				if (!improved) { converged = true; break; }
+
+				double moved = Math.Abs(next - position);
+				position = next;
+				currentDistance = nextDistance;
+				toCurrent = nextVector;
+				if (moved < parameterTolerance)
+				{
+					converged = true;
+					break;
+				}
+			}
+
+			if (!converged) return false;
+			u = position;
+			return true;
+		}
+
 		/// <summary>
 		/// Implements <see cref="CADability.Curve2D.ICurve2D.PositionAtLength (double)"/>
 		/// </summary>
@@ -1632,7 +1743,10 @@ namespace CADability.Curve2D
 			{   // here we are close enough to try with newton
 				par = (spar + epar) / 2.0;
 				int iterations = 20;
-				if (TryPointDeriv2At(par, out GeoPoint2D point, out GeoVector2D deriv1, out GeoVector2D deriv2))
+				// A NaN first derivative makes functionTolerance NaN, every comparison in the Newton
+				// iteration false, and the iteration runs its full count to return garbage. The slower
+				// but robust NewtonPerpendicular below handles those curves.
+				if (TryPointDeriv2At(par, out GeoPoint2D point, out GeoVector2D deriv1, out GeoVector2D deriv2) && deriv1.IsValid)
 				{
 					double stepTolerance = (epar - spar) * 1e-8;
 					double functionTolerance = (point | fromHere) * deriv1.Length * 1e-18;
@@ -1914,17 +2028,95 @@ namespace CADability.Curve2D
 		/// Implements <see cref="CADability.Curve2D.ICurve2D.GetInflectionPoints ()"/>
 		/// </summary>
 		/// <returns></returns>
+		/// <summary>
+		/// The numerator of the curvature, x'*y'' - y'*x'', whose sign changes exactly at an inflection
+		/// point. The second derivative is taken as a central difference of <see cref="DirectionAt"/>,
+		/// which every derived class provides; a class that knows its second derivative exactly should
+		/// override <see cref="GetInflectionPoints"/> instead (BSpline2D does).
+		/// </summary>
+		private double CurvatureNumerator(double u, double h)
+		{
+			if (u < h) u = h; // stay inside the parameter range
+			if (u > 1 - h) u = 1 - h;
+			GeoVector2D dirPlus = DirectionAt(u + h);
+			GeoVector2D dirMinus = DirectionAt(u - h);
+			GeoVector2D deriv2 = new GeoVector2D((dirPlus.x - dirMinus.x) / (2 * h), (dirPlus.y - dirMinus.y) / (2 * h));
+			GeoVector2D deriv1 = DirectionAt(u);
+			return deriv1.x * deriv2.y - deriv1.y * deriv2.x;
+		}
+
 		public virtual double[] GetInflectionPoints()
 		{
+			// This used to read the inflection points back out of the triangulation, by comparing on which
+			// side of its base line each triangle apex sat. That test is decided by the triangulation's own
+			// resolution: on an almost straight curve the apexes wander far enough for rounding to flip the
+			// answer, and an inflection point falling inside one segment was not seen at all. It also made
+			// the two circular: MakeTriangulation needs the inflection points to place its base points, so
+			// it could not ask for them without first building the very triangulation it was about to build.
+			//
+			// Instead find the sign changes of x'*y'' - y'*x'' directly. The triangulation BASIS - the
+			// knots of a spline, the quadrant points of an arc - is still what brackets the search, since
+			// the classes guarantee at most one inflection point between two of those.
 			List<double> res = new List<double>();
-			if (interpol == null) MakeTriangulation();
-			for (int i = 0; i < interpol.Length - 2; ++i)
+			const double h = 1e-6; // step of the central difference, constant over the whole run
+			const int subdivisions = 8; // scan steps per interval of the basis
+			GeoPoint2D[] points;
+			GeoVector2D[] directions;
+			double[] parameters;
+			GetTriangulationBasis(out points, out directions, out parameters);
+			if (parameters.Length < 2) return res.ToArray();
+			if (Precision.IsColinear(points)) return res.ToArray(); // a straight line has no inflection point
+
+			// The basis alone is too coarse a grid: two inflection points inside one of its intervals
+			// cancel each other's sign change and both are missed, which a spline of higher degree does
+			// easily (a degree 5 spline has a curvature numerator of degree 7 per knot span). Scanning
+			// each interval in several steps separates them.
+			List<double> grid = new List<double>((parameters.Length - 1) * subdivisions + 1);
+			grid.Add(parameters[0]);
+			for (int i = 1; i < parameters.Length; i++)
 			{
-				if (Precision.IsPointOnLine(tringulation[i], interpol[i], interpol[i + 1])) continue;
-				if (Precision.IsPointOnLine(tringulation[i + 1], interpol[i + 1], interpol[i + 2])) continue;
-				if (Geometry.OnLeftSide(interpol[i], interpol[i + 1], tringulation[i]) != Geometry.OnLeftSide(interpol[i + 1], interpol[i + 2], tringulation[i + 1]))
-				{   // das sind die Wendepunkte
-					res.Add(interparam[i + 1]);
+				for (int k = 1; k <= subdivisions; k++)
+				{
+					grid.Add(parameters[i - 1] + (parameters[i] - parameters[i - 1]) * k / (double)subdivisions);
+				}
+			}
+
+			Func<double, double> f = delegate (double u)
+			{
+				GeoVector2D dir = DirectionAt(u);
+				if (dir.Length < 1e-12) return 0.0; // a singularity of the parameterization says nothing
+				return CurvatureNumerator(u, h);
+			};
+
+			// Scale for "is this sign change real or is it noise": the largest value seen on the grid.
+			double[] values = new double[grid.Count];
+			double scale = 0.0;
+			for (int i = 0; i < grid.Count; i++)
+			{
+				values[i] = f(grid[i]);
+				scale = Math.Max(scale, Math.Abs(values[i]));
+			}
+			if (scale <= 0.0) return res.ToArray(); // no curvature anywhere
+			double noise = scale * 1e-8;
+
+			for (int i = 1; i < grid.Count; i++)
+			{
+				if ((values[i - 1] < 0) == (values[i] < 0)) continue; // no sign change here
+				// On an almost straight curve both ends are noise around zero and a root between them
+				// means nothing, so ask for a pronounced change relative to the curve's own scale.
+				if (Math.Abs(values[i - 1]) < noise && Math.Abs(values[i]) < noise) continue;
+				try
+				{
+					double root = MathNet.Numerics.RootFinding.Brent.FindRoot(f, grid[i - 1], grid[i], 1e-8, 100);
+					double step = Math.Max(1e-9, (grid[i] - grid[i - 1]) * 1e-3);
+					double left = f(Math.Max(0.0, root - step));
+					double right = f(Math.Min(1.0, root + step));
+					if (left * right < 0) res.Add(root); // a real sign change, not a touch
+				}
+				catch (Exception e)
+				{
+					if (e is System.Threading.ThreadAbortException) throw;
+					// no usable root in this interval
 				}
 			}
 			return res.ToArray();

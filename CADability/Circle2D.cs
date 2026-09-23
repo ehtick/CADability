@@ -540,8 +540,17 @@ namespace CADability.Curve2D
         /// <returns></returns>
         public override double GetAreaFromPoint(GeoPoint2D p)
         {
-            if ((p | center) < radius) return GetArea();
-            else return 0.0;
+            // The swept area of a CLOSED curve does not depend on where it is seen from - that is the
+            // statement that an enclosed area is an enclosed area. This used to answer a different
+            // question, whether p is enclosed, and returned 0 for a point outside the circle. Border and
+            // Face sum GetAreaFromPoint over the segments of a loop to get its area, and with a reference
+            // point outside (the centroid of the start points of a crescent shaped border is outside it)
+            // a circular segment then contributed nothing.
+            // Written in the general form, which Line2D, Arc2D and BSpline2D use as well: the reference
+            // point enters the integrand only linearly, so its contribution telescopes to the end points
+            // and vanishes for a closed curve.
+            GeoPoint2D sp = StartPoint, ep = EndPoint;
+            return GetArea() - (p.x * (ep.y - sp.y) - p.y * (ep.x - sp.x)) / 2.0;
         }
         public override bool IsClosed
         {

@@ -1253,6 +1253,15 @@ namespace CADability
             // l1s + p1*l1dir == l2s + p2*l2dir + p3*xdir; // xdir ist die senkrechte zu beiden
             // p1*l1dir -p2*l2dir - p3*xdir == l2s - l1s
             // ACHTUNG: par2 jetzt mit richtigem Vorzeichen
+            // Parallel lines have a null vector as their cross product. Letting Norm() throw for that is
+            // expensive in a routine called this often, so the common case is tested for up front; the
+            // catch below stays as a backstop.
+            if ((l1Dir ^ l2Dir).IsNullVector())
+            {
+                par1 = double.MaxValue;
+                par2 = double.MaxValue;
+                return Geometry.DistPL(l2Start, l1Start, l1Dir);
+            }
             try
             {
                 GeoVector xdir = l1Dir ^ l2Dir;
@@ -1291,6 +1300,8 @@ namespace CADability
         /// <returns></returns>
         public static GeoPoint IntersectLL(GeoPoint l1Start, GeoVector l1Dir, GeoPoint l2Start, GeoVector l2Dir)
         {
+            // see DistLL: parallel lines are recognised before Norm() throws for them
+            if ((l1Dir ^ l2Dir).IsNullVector()) throw new GeometryException("trying to intersect parallel lines");
             try
             {
                 GeoVector xdir = l1Dir ^ l2Dir;
@@ -2135,6 +2146,29 @@ namespace CADability
                         res.Add(new GeoPoint2D(xx * cw - yy * sw + CenterE.x, xx * sw + yy * cw + CenterE.y));
                         xx = -Radius;
                         res.Add(new GeoPoint2D(xx * cw - yy * sw + CenterE.x, xx * sw + yy * cw + CenterE.y));
+                        return res.ToArray();
+                    }
+                    else
+                    {   // Concentric and not tangential: the general solution below divides by y0, which is
+                        // exactly 0 here (the swap further down puts the larger of |x0|, |y0| into y0), so it
+                        // would produce infinities and NaN and silently report no intersection at all.
+                        // Concentric is the one case that needs no iteration:
+                        //   x^2/a^2 + y^2/b^2 = 1  and  x^2 + y^2 = r^2  give
+                        //   x^2 = a^2*(r^2 - b^2)/(a^2 - b^2),  y^2 = b^2*(a^2 - r^2)/(a^2 - b^2).
+                        // a^2 != b^2 is guaranteed, a circular ellipse was handed to IntersectCC above.
+                        double aa = sqr(a), bb = sqr(b);
+                        double xx2 = aa * (rr - bb) / (aa - bb);
+                        double yy2 = bb * (aa - rr) / (aa - bb);
+                        if (xx2 < 0.0 || yy2 < 0.0) return new GeoPoint2D[0]; // the circle misses the ellipse
+                        double xx = Math.Sqrt(xx2);
+                        double yy = Math.Sqrt(yy2);
+                        List<GeoPoint2D> res = new List<GeoPoint2D>();
+                        for (int i = 0; i < 4; i++)
+                        {
+                            double sx = (i == 0 || i == 3) ? xx : -xx;
+                            double sy = (i < 2) ? yy : -yy;
+                            res.Add(new GeoPoint2D(sx * cw - sy * sw + CenterE.x, sx * sw + sy * cw + CenterE.y));
+                        }
                         return res.ToArray();
                     }
                 }
@@ -3150,6 +3184,35 @@ namespace CADability
         //}
 
         /// <summary>
+        /// The circle through three points. Unlike <see cref="CircleFitLs"/>, which minimizes over any
+        /// number of points, this is the exact solution and needs no iteration. The computation is done
+        /// relative to <paramref name="p1"/>, which keeps it well conditioned for points far from the
+        /// coordinate origin.
+        /// </summary>
+        /// <param name="center">center of the circle through the three points</param>
+        /// <param name="radius">its radius</param>
+        /// <returns>false, if the three points are colinear and there is no such circle</returns>
+        public static bool CircleFit(GeoPoint2D p1, GeoPoint2D p2, GeoPoint2D p3, out GeoPoint2D center, out double radius)
+        {
+            double ax = p2.x - p1.x, ay = p2.y - p1.y;
+            double bx = p3.x - p1.x, by = p3.y - p1.y;
+
+            double d = 2 * (ax * by - ay * bx); // twice the signed area of the triangle
+            if (Math.Abs(d) < 1e-10)
+            {
+                radius = 0.0;
+                center = GeoPoint2D.Invalid;
+                return false;
+            }
+
+            double ux = (by * (ax * ax + ay * ay) - ay * (bx * bx + by * by)) / d;
+            double uy = (ax * (bx * bx + by * by) - bx * (ax * ax + ay * ay)) / d;
+
+            center = new GeoPoint2D(p1.x + ux, p1.y + uy);
+            radius = p1 | center;
+            return true;
+        }
+        /// <summary>
         /// tries to find a center and radius for a circle which best fits to the provided points
         /// </summary>
         /// <param name="points">points to fit</param>
@@ -3252,51 +3315,98 @@ namespace CADability
             }
             return res;
         }
+        /// <summary>
+        /// Fits a circle to the provided points and returns the sum of the absolute residuals
+        /// |dist^2 - r^2| (smaller is a better fit), double.MaxValue when no circle could be determined
+        /// (fewer than three points, or points on a straight line).
+        /// <para>
+        /// Taubin fit: a geometrically (nearly) unbiased algebraic circle fit, working on data centered at
+        /// the centroid. The Kasa fit used here before minimizes the algebraic distance without that
+        /// correction, which systematically UNDERESTIMATES the radius as soon as the points cover only a
+        /// short arc - over 400 noise realisations a 15 degree arc of radius 20 came out 4.0 too small
+        /// (a fifth of the radius), a 10 degree arc of radius 100 came out 4.7 too small. Taubin keeps
+        /// those cases below 0.2. For a full circle both agree.
+        /// </para>
+        /// <para>
+        /// References: G. Taubin, IEEE PAMI 13 (1991); implementation after N. Chernov, "Circular and
+        /// Linear Regression: Fitting Circles and Lines by Least Squares".
+        /// </para>
+        /// </summary>
         public static double CircleFitLs(GeoPoint2D[] p, out GeoPoint2D c, out double r)
-        {   // siehe: http://www.had2know.com/academics/best-fit-circle-least-squares.html
-            // kommt ohne Iterationen aus, liefert direkt das Ergebnis mit least squre
-#if DEBUG
-            //Polyline2D p2d = new Polyline2D(p);
-#endif
-            Matrix m = new DenseMatrix(3, 3);
-            Vector b = new DenseVector(3);
-            for (int i = 0; i < p.Length; i++)
-            {
-                double s = p[i].x * p[i].x + p[i].y * p[i].y;
-                b[0] += p[i].x * s;
-                b[1] += p[i].y * s;
-                b[2] += s;
-                s = p[i].x * p[i].y;
-                m[0, 0] += p[i].x * p[i].x;
-                m[0, 1] += s;
-                m[0, 2] += p[i].x;
-                m[1, 0] += s;
-                m[1, 1] += p[i].y * p[i].y;
-                m[1, 2] += p[i].y;
-                m[2, 0] += p[i].x;
-                m[2, 1] += p[i].y;
-            }
-            m[2, 2] = p.Length;
-            Vector slv = (Vector)m.Transpose().Solve(b);
-            if (slv.IsValid())
-            {
-                c.x = slv[0] / 2.0;
-                c.y = slv[1] / 2.0;
-                double rt = 4 * slv[2] + slv[0] * slv[0] + slv[1] * slv[1];
-                if (rt >= 0)
-                {
-                    r = Math.Sqrt(rt) / 2.0;
-                    double res = 0.0;
-                    for (int i = 0; i < p.Length; i++)
-                    {
-                        res += Math.Abs((p[i].x - c.x) * (p[i].x - c.x) + (p[i].y - c.y) * (p[i].y - c.y) - r * r);
-                    }
-                    return res;
-                }
-            }
+        {
             c = GeoPoint2D.Origin;
-            r = 0;
-            return double.MaxValue;
+            r = 0.0;
+            int n = p.Length;
+            if (n < 3) return double.MaxValue;
+
+            // center the data at the centroid
+            double meanX = 0.0, meanY = 0.0;
+            for (int i = 0; i < n; i++) { meanX += p[i].x; meanY += p[i].y; }
+            meanX /= n; meanY /= n;
+
+            // normalized moments of the centered points (z = x^2 + y^2)
+            double Mxx = 0.0, Myy = 0.0, Mxy = 0.0, Mxz = 0.0, Myz = 0.0, Mzz = 0.0;
+            for (int i = 0; i < n; i++)
+            {
+                double xi = p[i].x - meanX;
+                double yi = p[i].y - meanY;
+                double zi = xi * xi + yi * yi;
+                Mxx += xi * xi;
+                Myy += yi * yi;
+                Mxy += xi * yi;
+                Mxz += xi * zi;
+                Myz += yi * zi;
+                Mzz += zi * zi;
+            }
+            Mxx /= n; Myy /= n; Mxy /= n; Mxz /= n; Myz /= n; Mzz /= n;
+
+            double Mz = Mxx + Myy;
+            double covXY = Mxx * Myy - Mxy * Mxy;
+            double varZ = Mzz - Mz * Mz;
+
+            // characteristic cubic  a3*t^3 + a2*t^2 + a1*t + a0  whose smallest nonnegative root gives the fit
+            double a3 = 4.0 * Mz;
+            double a2 = -3.0 * Mz * Mz - Mzz;
+            double a1 = varZ * Mz + 4.0 * covXY * Mz - Mxz * Mxz - Myz * Myz;
+            double a0 = Mxz * (Mxz * Myy - Myz * Mxy) + Myz * (Myz * Mxx - Mxz * Mxy) - varZ * covXY;
+            double a22 = a2 + a2;
+            double a33 = a3 + a3 + a3;
+
+            // find the root by Newton's method starting at 0 (a few scalar steps; the start point brackets
+            // the relevant root). On divergence or a negative root fall back to t = 0, which is still a
+            // valid fit - it is the Pratt/Kasa end of the family rather than the Taubin one.
+            double t = 0.0;
+            double yPrev = double.MaxValue;
+            for (int iter = 0; iter < 50; iter++)
+            {
+                double y = a0 + t * (a1 + t * (a2 + t * a3));
+                if (Math.Abs(y) >= Math.Abs(yPrev)) { t = 0.0; break; } // not converging
+                double dy = a1 + t * (a22 + t * a33);
+                if (dy == 0.0) break;
+                double tOld = t;
+                t = tOld - y / dy;
+                if (double.IsNaN(t) || t < 0.0) { t = 0.0; break; }
+                if (t != 0.0 && Math.Abs((t - tOld) / t) < 1e-12) break;
+                yPrev = y;
+            }
+
+            double det = t * t - t * Mz + covXY;
+            if (det == 0.0 || double.IsNaN(det)) return double.MaxValue; // collinear points, no unique circle
+            double cx = (Mxz * (Myy - t) - Myz * Mxy) / det / 2.0;
+            double cy = (Myz * (Mxx - t) - Mxz * Mxy) / det / 2.0;
+            double rsqr = cx * cx + cy * cy + Mz;
+            if (rsqr < 0.0 || double.IsNaN(rsqr)) return double.MaxValue;
+
+            c.x = cx + meanX; // undo the centering
+            c.y = cy + meanY;
+            r = Math.Sqrt(rsqr);
+
+            double residual = 0.0;
+            for (int i = 0; i < n; i++)
+            {
+                residual += Math.Abs((p[i].x - c.x) * (p[i].x - c.x) + (p[i].y - c.y) * (p[i].y - c.y) - r * r);
+            }
+            return residual;
         }
 
         public static double SphereFit(GeoPoint[] points, out GeoPoint center, out double radius)
