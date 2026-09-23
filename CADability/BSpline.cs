@@ -75,6 +75,7 @@ namespace CADability.GeoObject
         private GeoVector[] interdir; // Interpolation mit einer gewissen Genauigkeit
         private double[] interparam; // die Parameter zur Interpolation
         private BoundingCube extent;
+        private double length = double.MinValue; // cached arc length, see ICurve.Length
         private TetraederHull tetraederHull;
         private GeoPoint[] approximation; // Interpolation mit der Genauigkeit der Auflösung
         private double approxPrecision; // Genauigkeit zu approximation
@@ -516,6 +517,7 @@ namespace CADability.GeoObject
                 interparam = null;
                 approximation = null;
                 extent = BoundingCube.EmptyBoundingCube;
+                length = double.MinValue;
                 tetraederHull = null;
                 extrema = null;
             }
@@ -548,6 +550,7 @@ namespace CADability.GeoObject
                     bSpline.interpol = null;
                     bSpline.interdir = null;
                     bSpline.interparam = null;
+                    bSpline.length = double.MinValue;
                     if (!keepNurbs)
                     {
                         bSpline.nubs3d = null;
@@ -1372,6 +1375,7 @@ namespace CADability.GeoObject
             interdir = null;
             interparam = null;
             throughPoints3d = null;
+            length = double.MinValue;
 
             if (nubs3d != null)
             {
@@ -2411,23 +2415,47 @@ namespace CADability.GeoObject
             if (sp == ep) return this.Clone() as BSpline;
             return TrimParam(sp, ep);
         }
+        /// <summary>
+        /// The arc length of this curve, the integral of |C'(u)| over the parameter interval.
+        /// <para>
+        /// This used to take one of two routes, and both measured a polygon rather than the curve. A planar
+        /// spline was projected into its plane and the 2d curve was asked - which is exact now that
+        /// <see cref="Curve2D.BSpline2D.Length"/> integrates, but the branch also returned 0.0 for a planar
+        /// spline whose projection failed. A non planar spline was approximated by lines and the polygon
+        /// through them measured, which comes out short: a helix of two turns measured 131.658 against a
+        /// true 131.876.
+        /// </para>
+        /// <para>
+        /// Integrating the speed covers both cases the same way. The knots go in as break points because
+        /// |C'(u)| is only continuous across them, not smooth, and a quadrature rule spanning such a kink
+        /// would not converge - see <see cref="ArcLength.FromSpeed"/>.
+        /// </para>
+        /// </summary>
         double ICurve.Length
         {
             get
             {
-                if ((this as ICurve).GetPlanarState() == PlanarState.Planar)
+                if (length > 0) return length; // computed before and nothing changed since
+                try
                 {
-                    Plane pl = (this as ICurve).GetPlane();
-                    ICurve2D c2d = (this as ICurve).GetProjectedCurve(pl);
-                    if (c2d == null)
+                    double res = ArcLength.FromSpeed(u =>
                     {
-                        c2d = (this as ICurve).GetProjectedCurve(pl);
-                        return 0.0;
+                        PointDirAtParam(u, out GeoPoint _, out GeoVector dir);
+                        return dir.Length;
+                    }, startParam, endParam, knots);
+                    if (!double.IsNaN(res) && !double.IsInfinity(res))
+                    {
+                        length = res;
+                        return length;
                     }
-                    return c2d.Length;
+                }
+                catch (Exception e)
+                {
+                    if (e is ThreadAbortException) throw (e);
                 }
                 ICurve aprox = (this as ICurve).Approximate(true, Math.Max(GetBoundingCube().Size / 1000, Precision.eps));
-                return aprox.Length;
+                length = aprox.Length; // last resort: the polygon through an approximation
+                return length;
             }
         }
         private void MakeStartEndKnotsClean()
