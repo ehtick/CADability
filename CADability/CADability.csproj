@@ -21,6 +21,25 @@
     <Platforms>AnyCPU;x64</Platforms>
     <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
     <LangVersion>11.0</LangVersion>
+
+    <!-- Symbols and source stepping for consumers of the package: the symbols travel as a separate
+         .snupkg to nuget.org's symbol server, and Source Link records the commit in the package and
+         the source URLs in the pdb, so a debugger can fetch the matching sources from GitHub.
+         The Release configuration builds portable pdbs for this - nuget.org rejects a .snupkg that
+         carries Windows pdbs. -->
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <!-- generated files have no counterpart on GitHub, so they go into the pdb itself -->
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(GITHUB_ACTIONS)'=='true'">
+    <!-- normalizes the source paths baked into the pdb, so the published symbols do not depend on
+         where the runner happened to check the repository out. Only on the build server: locally the
+         real paths are what lets a debugger find the sources without downloading them. -->
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)'=='Debug'">
@@ -37,7 +56,8 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <DefineConstants>NET4X;xTESTNEWCONTEXTMENU</DefineConstants>
     <Optimize>true</Optimize>
-    <DebugType>full</DebugType>
+    <!-- portable, not full: a .snupkg may only contain portable pdbs -->
+    <DebugType>portable</DebugType>
     <DebugSymbols>true</DebugSymbols>
     <DocumentationFile />
   </PropertyGroup>
@@ -46,7 +66,9 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <DefineConstants>xPARALLEL, xTESTNEWCONTEXTMENU</DefineConstants>
     <Optimize>false</Optimize>
-    <DebugType>full</DebugType>
+    <!-- portable like Release: IncludeSymbols applies to every pack, and a .snupkg built from
+         Windows pdbs would be rejected by nuget.org -->
+    <DebugType>portable</DebugType>
     <DebugSymbols>true</DebugSymbols>
     <DocumentationFile />
   </PropertyGroup>

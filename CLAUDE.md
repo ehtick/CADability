@@ -31,6 +31,13 @@ csproj is the single source of truth for what gets published.
    minutes for nuget.org to validate and index the package, so
    `https://api.nuget.org/v3-flatcontainer/cadability/index.json` still returns
    404 for the fresh version for a while. That is expected and not a failure.
+
+   The build also produces a symbol package (`CADability.<version>.snupkg`)
+   next to the `.nupkg`. `dotnet nuget push` uploads it along with the package
+   without the workflow naming it, so the log shows a second upload. Symbols
+   let consumers step into CADability sources from their own debugger, so if
+   that upload ever stops happening, the release is incomplete even though the
+   package itself is fine.
 5. **Make sure the tag exists.** Every `1.1.x` release is tagged. If the
    release was started with `workflow_dispatch`, create and push the matching
    `vX.Y.Z` tag afterwards from a normal clone so the history keeps marking the
