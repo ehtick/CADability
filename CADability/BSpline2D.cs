@@ -2902,20 +2902,26 @@ namespace CADability.Curve2D
         public override bool TryPointDeriv2At(double position, out GeoPoint2D point, out GeoVector2D deriv1, out GeoVector2D deriv2)
         {
             double param = startParam + position * (endParam - startParam);
+            // The nurbs routines differentiate by the knot parameter, this method by the normalized
+            // position, the way <see cref="DirectionAt"/> does. Chain rule: the first derivative scales
+            // with the length of the knot range, the second with its square. A knot range of 0 to 1 makes
+            // that factor 1, which is why the splines this library builds itself never showed the error -
+            // only those that arrive with a knot vector of their own, from STEP or DXF.
+            double toPosition = endParam - startParam;
             if (nubs != null)
             {
                 GeoPoint2D ndir1, ndir2;
                 nubs.CurveDeriv2(param, out point, out ndir1, out ndir2);
-                deriv1 = ndir1.ToVector();
-                deriv2 = ndir2.ToVector();
+                deriv1 = toPosition * ndir1.ToVector();
+                deriv2 = (toPosition * toPosition) * ndir2.ToVector();
             }
             else
             {
                 GeoPoint2DH npoint, ndir1, ndir2;
                 nurbs.CurveDeriv2(param, out npoint, out ndir1, out ndir2);
                 point = npoint;
-                deriv1 = (GeoVector2D)ndir1;
-                deriv2 = (GeoVector2D)ndir2;
+                deriv1 = toPosition * (GeoVector2D)ndir1;
+                deriv2 = (toPosition * toPosition) * (GeoVector2D)ndir2;
             }
             return true;
         }

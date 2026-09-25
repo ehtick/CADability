@@ -206,19 +206,14 @@ namespace CADability.Curve2D
         }
         public override bool TryPointDeriv2At(double position, out GeoPoint2D point, out GeoVector2D deriv, out GeoVector2D deriv2)
         {
+            // PointAt is the angle start + position * sweep for either orientation, so the derivatives are
+            // simply the derivatives of that. The branch for a negative sweep used to evaluate at -par, the
+            // angle mirrored at the x axis, and so reported a point that is not the point of this position
+            // at all - together with the derivatives belonging to that other point.
             double par = start + position * sweep.Radian;
-            if (sweep.Radian > 0)
-            {
-                point = new GeoPoint2D(Center.x + Radius * Math.Cos(par), Center.y + Radius * Math.Sin(par));
-                deriv = (sweep.Radian) * new GeoVector2D(-Radius * Math.Sin(par), Radius * Math.Cos(par));
-                deriv2 = (sweep.Radian) * (sweep.Radian) * new GeoVector2D(-Radius * Math.Cos(par), -Radius * Math.Sin(par));
-            }
-            else
-            {
-                point = new GeoPoint2D(Center.x + Radius * Math.Cos(-par), Center.y + Radius * Math.Sin(-par));
-                deriv = Math.Abs(sweep.Radian) * new GeoVector2D(Radius * Math.Sin(-par), -Radius * Math.Cos(-par));
-                deriv2 = (sweep.Radian) * (sweep.Radian) * new GeoVector2D(-Radius * Math.Cos(-par), -Radius * Math.Sin(-par));
-            }
+            point = new GeoPoint2D(Center.x + Radius * Math.Cos(par), Center.y + Radius * Math.Sin(par));
+            deriv = (sweep.Radian) * new GeoVector2D(-Radius * Math.Sin(par), Radius * Math.Cos(par));
+            deriv2 = (sweep.Radian) * (sweep.Radian) * new GeoVector2D(-Radius * Math.Cos(par), -Radius * Math.Sin(par));
             return true;
         }
         internal void Close()

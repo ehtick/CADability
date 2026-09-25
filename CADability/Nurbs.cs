@@ -1942,27 +1942,28 @@ namespace CADability
         {
             // im Buch S. 127. Aders und wders sind die echten Komponenten bzw. das Gewicht
             // diese beiden werden hier in einem Parameter übergeben
+            // Each step of A4.2 subtracts multiples of the LOWER RATIONAL derivatives, C and C', not of
+            // the homogeneous A and A'. Three things were wrong here and each of them needs the same
+            // curve to be rational to show at all, which is why <see cref="RatCurveDerivs1"/> - the same
+            // formula for k == 1 alone, written separately - stayed correct:
+            // - the point went in unnormalized, as A instead of C = A/w, so the correction term of the
+            //   first derivative was too large by the factor w;
+            // - the weight of the first derivative was read AFTER that derivative had been replaced by
+            //   the rational one. A rational derivative has weight zero, so the term -2 w' C' was
+            //   multiplied by zero and disappeared;
+            // - that term carries the binomial coefficient Bin(2,1) = 2, not 1.
             double w = calc.Weight(pointAtU);
-            // int[][] B = Bino(d);
-            //for (int k = 0; k <= d; ++k)
-            //{
-            //    Pole v = derivAtU[k].Clone();
-            //    for (int i = 1; i <= k; ++i)
-            //    {
-            //        v.Add(-B[k][i] * derivAtU[i].Weight, CK[k - i]);
-            //    }
-            //    CK[k] = v.Create(1.0 / w, v, nullPole);
-            //}
-            // k=0: nichts zu tun (pointAtU bleibt unverändert)
-            // k=1:
-            if (w != 0.0) deriv1AtU = calc.Mul(1.0 / w, calc.Add(deriv1AtU, calc.Mul(-calc.Weight(deriv1AtU), pointAtU)));
-            else deriv1AtU = calc.Mul(1.0 / 1.0, calc.Add(deriv1AtU, calc.Mul(-calc.Weight(deriv1AtU), pointAtU)));
-            // k=2:
-            T v = deriv2AtU; // Binomialkoeffizienten sind alle 1
-            v = calc.Add(v, calc.Mul(-calc.Weight(deriv1AtU), deriv1AtU));
-            v = calc.Add(v, calc.Mul(-calc.Weight(deriv2AtU), pointAtU));
-            if (w != 0.0) deriv2AtU = calc.Mul(1.0 / w, v);
-            else deriv2AtU = calc.Mul(1.0 / 1.0, v);
+            if (w == 0.0) w = 1.0;
+            double w1 = calc.Weight(deriv1AtU); // both weights before anything is overwritten
+            double w2 = calc.Weight(deriv2AtU);
+            T c0 = calc.NormH(pointAtU); // C = A / w
+            // k == 1: C' = (A' - w' C) / w
+            T c1 = calc.Mul(1.0 / w, calc.Add(deriv1AtU, calc.Mul(-w1, c0)));
+            // k == 2: C'' = (A'' - 2 w' C' - w'' C) / w
+            T v = calc.Add(deriv2AtU, calc.Mul(-2.0 * w1, c1));
+            v = calc.Add(v, calc.Mul(-w2, c0));
+            deriv1AtU = c1;
+            deriv2AtU = calc.Mul(1.0 / w, v);
         }
 
         public void InitDeriv1()

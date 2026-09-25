@@ -3535,37 +3535,56 @@ namespace CADability.GeoObject
         }
         bool ICurve.TryPointDeriv2At(double position, out GeoPoint point, out GeoVector deriv1, out GeoVector deriv2)
         {
+            // The helper carrying the nurbs representation is built lazily, so it has to be asked for here
+            // like every other accessor does. Reading the fields straight threw on a spline nobody had
+            // evaluated yet: all four are null then, the bare else below was taken, and nurbs2d was null.
+            // The symptom depended on the order of the calls - the same spline worked as soon as anything
+            // had called PointAt on it.
+            lock (bSplineLock)
+            {
+                if (!nurbsHelper) MakeNurbsHelper();
+            }
             double param = startParam + position * (endParam - startParam);
+            // Derivatives by the normalized position, not by the knot parameter - see the same correction
+            // in BSpline2D.TryPointDeriv2At.
+            double toPosition = endParam - startParam;
             if (nubs3d != null)
             {
                 GeoPoint ndir1, ndir2;
                 nubs3d.CurveDeriv2(param, out point, out ndir1, out ndir2);
-                deriv1 = ndir1.ToVector();
-                deriv2 = ndir2.ToVector();
+                deriv1 = toPosition * ndir1.ToVector();
+                deriv2 = (toPosition * toPosition) * ndir2.ToVector();
             }
             else if (nurbs3d != null)
             {
                 GeoPointH npoint, ndir1, ndir2;
                 nurbs3d.CurveDeriv2(param, out npoint, out ndir1, out ndir2);
                 point = npoint;
-                deriv1 = (GeoVector)ndir1;
-                deriv2 = (GeoVector)ndir2;
+                deriv1 = toPosition * (GeoVector)ndir1;
+                deriv2 = (toPosition * toPosition) * (GeoVector)ndir2;
             }
             else if (nubs2d != null)
             {
                 GeoPoint2D ndir1, ndir2, point2d;
                 nubs2d.CurveDeriv2(param, out point2d, out ndir1, out ndir2);
-                deriv1 = plane.Value.ToGlobal(ndir1.ToVector());
-                deriv2 = plane.Value.ToGlobal(ndir2.ToVector());
+                deriv1 = toPosition * plane.Value.ToGlobal(ndir1.ToVector());
+                deriv2 = (toPosition * toPosition) * plane.Value.ToGlobal(ndir2.ToVector());
                 point = plane.Value.ToGlobal(point2d);
             }
-            else
+            else if (nurbs2d != null)
             {
                 GeoPoint2DH ndir1, ndir2, point2d;
                 nurbs2d.CurveDeriv2(param, out point2d, out ndir1, out ndir2);
-                deriv1 = plane.Value.ToGlobal((GeoVector2D)ndir1);
-                deriv2 = plane.Value.ToGlobal((GeoVector2D)ndir2);
+                deriv1 = toPosition * plane.Value.ToGlobal((GeoVector2D)ndir1);
+                deriv2 = (toPosition * toPosition) * plane.Value.ToGlobal((GeoVector2D)ndir2);
                 point = plane.Value.ToGlobal((GeoPoint2D)point2d);
+            }
+            else
+            {   // no nurbs representation at all: the caller falls back to a numerical derivative
+                point = (poles != null && poles.Length > 0) ? poles[0] : GeoPoint.Origin;
+                deriv1 = GeoVector.NullVector;
+                deriv2 = GeoVector.NullVector;
+                return false;
             }
             return true;
         }
