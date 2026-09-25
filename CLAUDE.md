@@ -82,8 +82,16 @@ Note that `git ls-remote --tags origin | tail -n 5` is misleading here, because
 the output is sorted lexically rather than by version: pipe it through
 `sort -V` before concluding which versions are tagged.
 
-## Code style
+## Language
 
-- **All source code comments must be written in English**, including inline
-  comments, XML doc comments and TODO/FIXME notes. (Commit messages may stay in
-  German to match the existing history.)
+**Everything posted to GitHub is written in English.** That covers commit
+messages, pull request titles and descriptions, issue text, review comments and
+replies to them, and the files in this repository, this one included. Source
+code comments are part of it too: inline comments, XML doc comments and
+TODO/FIXME notes.
+
+The language a task was discussed in makes no difference. A conversation held
+in German still produces an English commit message.
+
+Older German commit messages stay as they are — history is not rewritten for
+this rule, and the rule is about what is written from now on.
