@@ -8,10 +8,16 @@ workflow runs from** — the tag name is never used as the version number, so th
 csproj is the single source of truth for what gets published.
 
 1. **Bump the version.** Edit `<Version>` in `CADability/CADability.csproj`
-   (near the top of the first `<PropertyGroup>`). Follow SemVer: a new public
-   API or behaviour change that consumers can notice is a minor bump, a pure
-   bugfix is a patch bump. Versions on nuget.org are immutable — a broken
-   release cannot be replaced, only superseded by a higher version.
+   (near the top of the first `<PropertyGroup>`). Follow SemVer, and read it
+   strictly: a minor bump means public API was **added**, a patch bump means
+   existing behaviour was **fixed**. Do not reach for a minor bump merely
+   because a fix changes results that callers can notice — every fix worth
+   making does that, so by that reading a patch release could never exist.
+   Say what moved in the release notes instead. Check whether the release
+   really adds public surface before deciding: an `internal` type is not
+   public API, whatever its members are declared as. Versions on nuget.org are
+   immutable — a broken release cannot be replaced, only superseded by a
+   higher version.
 2. **Get that commit onto `master`.** The release is always cut from `master`,
    so merge the feature branch (or its pull request) first.
 3. **Start the workflow.** Either trigger works and both do exactly the same
