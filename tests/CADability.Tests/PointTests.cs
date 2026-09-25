@@ -1,6 +1,7 @@
 using CADability.Attribute;
 using CADability.GeoObject;
-using Point = CADability.GeoObject.Point; // disambiguate from the global using of System.Drawing
+using System.Drawing;
+using Point = CADability.GeoObject.Point; // disambiguate from System.Drawing.Point
 
 namespace CADability.Tests
 {

@@ -1,6 +1,8 @@
 ﻿using System.Diagnostics;
+#if WINDOWS
 using System.Drawing;
 using CADability.Forms;
+#endif
 using System.IO.Compression;
 using CADability.Attribute;
 using CADability.Shapes;
@@ -12,6 +14,33 @@ namespace CADability.Tests
     {
 
         public TestContext TestContext { get; set; }
+
+        /// <summary>
+        /// Text entities are measured and triangulated with GDI (System.Drawing and gdi32 via FontCache),
+        /// which only exists on Windows. Tests that import or create text are inconclusive elsewhere.
+        /// </summary>
+        private static void RequiresGdiText()
+        {
+            if (!System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
+                Assert.Inconclusive("text needs GDI, which is only available on Windows");
+        }
+
+        /// <summary>
+        /// Renders <paramref name="list"/> with OpenGL and compares it with the reference bitmap.
+        /// Rendering needs CADability.Forms (WinForms, OpenGL), so the check only runs on Windows.
+        /// </summary>
+        private static void AssertRendersLike(string bmpFile, GeoObject.GeoObjectList list, GeoVector viewDirection, int width, int height, [System.Runtime.CompilerServices.CallerMemberName] string testName = null)
+        {
+#if WINDOWS
+            using (var expected = (Bitmap)Image.FromFile(bmpFile))
+            using (var actual = PaintToOpenGL.PaintToBitmap(list, viewDirection, width, height))
+            {
+                // Uncomment once to regenerate the reference bitmap
+                //actual.Save(bmpFile);
+                Assert.That.BitmapsAreEqual(expected, actual, testName);
+            }
+#endif
+        }
 
         [TestMethod]
         [DeploymentItem(@"Files/Dxf/square_100x100.dxf", nameof(import_dxf_square_succeds))]
@@ -32,11 +61,7 @@ namespace CADability.Tests
             Assert.AreEqual(400, polyline.Length);
 
 
-            using (var expected = (Bitmap)Image.FromFile(bmpFile))
-            using (var actual = PaintToOpenGL.PaintToBitmap(model.AllObjects, GeoVector.ZAxis, 100, 100))
-            {
-                Assert.That.BitmapsAreEqual(expected, actual);
-            }
+            AssertRendersLike(bmpFile, model.AllObjects, GeoVector.ZAxis, 100, 100);
         }
         [TestMethod]
         [DeploymentItem(@"Files/Step/issue101.stp", nameof(import_step_issue101_succeds))]
@@ -72,16 +97,13 @@ namespace CADability.Tests
                 .FirstOrDefault();
             Assert.IsTrue(cylinder.OutwardOriented);
 
-            using (var expected = (Bitmap)Image.FromFile(bmpFile))
-            using (var actual = PaintToOpenGL.PaintToBitmap(model.AllObjects, GeoVector.NullVector, 200, 200))
-            {
-                Assert.That.BitmapsAreEqual(expected, actual);
-            }
+            AssertRendersLike(bmpFile, model.AllObjects, GeoVector.NullVector, 200, 200);
         }
 
         [TestMethod]
         public void export_dxf_issue_129_succeds()
         {
+            RequiresGdiText();
             // in master@82ffb34 exporting a text object to txt does not set the location,
             // so all texts are all not in the correct location / orientation
 
@@ -130,13 +152,7 @@ namespace CADability.Tests
             var ellipse2 = Assert.That.IsInstanceOfType<GeoObject.Ellipse>(model.AllObjects[2]);
             Assert.IsTrue(ellipse2.HasValidData());
 
-            using (var expected = (Bitmap)Image.FromFile(bmpFile))
-            using (var actual = PaintToOpenGL.PaintToBitmap(model.AllObjects, GeoVector.NullVector, 200, 200))
-            {
-                // Uncomment once to generate bitmap for later comparison
-                //actual.Save(bmpFile);
-                Assert.That.BitmapsAreEqual(expected, actual);
-            }
+            AssertRendersLike(bmpFile, model.AllObjects, GeoVector.NullVector, 200, 200);
         }
 
         [TestMethod]
@@ -156,6 +172,7 @@ namespace CADability.Tests
         [DeploymentItem(@"Files/Dxf/Z273.dxf", nameof(import_dxf_Z273_succeeds))]
         public void import_dxf_Z273_succeeds()
         {
+            RequiresGdiText();
             // AC1009 (R12) DXF with no *Paper_Space block — importing this used to throw
             // KeyNotFoundException when FillPaperSpace accessed the missing block record.
             var file = Path.Combine(this.TestContext.DeploymentDirectory, this.TestContext.TestName, "Z273.dxf");
@@ -173,6 +190,7 @@ namespace CADability.Tests
         [DeploymentItem(@"Files/Dxf/BVH_Bona.dxf", nameof(import_dxf_BVH_Bona_succeeds))]
         public void import_dxf_BVH_Bona_succeeds()
         {
+            RequiresGdiText();
             // AC1024 DXF with 508 arcs, 34 LwPolylines, 41 lines, 11 splines, 3 MTexts.
             // Arc.StartAngle/EndAngle from ACadSharp are in radians; using Angle.Deg() on them
             // shrinks all angles by π/180 making arcs nearly invisible ("totally obscured").
@@ -302,6 +320,7 @@ EOF
         [TestMethod]
         public void import_dxf_text_rotation_correct()
         {
+            RequiresGdiText();
             // Regression: TextEntity.Rotation from ACadSharp is in RADIANS.
             // Old code called Angle.Deg() on it, making 90° text appear at ~1.57° (nearly horizontal).
             // A text at DXF rotation=90° must import with LineDirection ≈ (0, 1, 0).
@@ -487,6 +506,7 @@ EOF
         [TestMethod]
         public void import_dxf_mtext_topcenter_placement_correct()
         {
+            RequiresGdiText();
             // Regression: CreateMText ignored AttachmentPoint so all MTEXT rendered as
             // Left/Baseline. For table cells with attachment TopCenter (71=2) the text
             // appears shifted right and down of where it should be.
@@ -544,6 +564,7 @@ EOF
         [TestMethod]
         public void import_dxf_mtext_bottomright_placement_correct()
         {
+            RequiresGdiText();
             // MTEXT with attachment BottomRight (71=9) must have Right+Bottom alignment.
             const string dxf = @"  0
 SECTION
@@ -686,6 +707,7 @@ EOF
         [TestMethod]
         public void import_dxf_tolerance_fcf_imported_as_text()
         {
+            RequiresGdiText();
             // DXF TOLERANCE (AcDbFcf / Feature Control Frame) entities were silently dropped
             // because there was no case for ACadSharp.Entities.Tolerance in GeoObjectFromEntity.
             // They must now be imported as Text objects at the insertion point.

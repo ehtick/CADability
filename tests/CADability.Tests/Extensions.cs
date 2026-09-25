@@ -5,7 +5,9 @@
 //   Microsoft.VisualStudio.TestPlatform.MSTest.TestAdapter
 // do not show in the test window but the calling method,
 // which is what we want to achive.
+#if WINDOWS
 using System.Drawing;
+#endif
 using System.Runtime.CompilerServices;
 
 namespace Microsoft.VisualStudio.TestTools.UnitTesting
@@ -27,6 +29,7 @@ namespace Microsoft.VisualStudio.TestTools.UnitTesting
             return (T)value;
         }
 
+#if WINDOWS
         public static void BitmapsAreEqual(this Assert assert, Bitmap expected, Bitmap actual, [CallerMemberName] string testName = null)
         {
             Assert.AreEqual(expected.Size, actual.Size);
@@ -81,6 +84,7 @@ namespace Microsoft.VisualStudio.TestTools.UnitTesting
                 }
             }
         }
+#endif
 
     }
 }

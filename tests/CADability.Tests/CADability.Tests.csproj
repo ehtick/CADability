@@ -1,10 +1,17 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <!-- On Windows the tests also render geometry with CADability.Forms (OpenGL, WinForms) and
+         compare the result against reference bitmaps. The Windows Desktop runtime does not exist
+         on Linux/macOS, so there the project targets plain net8.0 and the rendering checks are
+         compiled out (they are guarded by the WINDOWS symbol that the -windows TFM defines). -->
+    <TargetFramework Condition="'$(OS)' == 'Windows_NT'">net8.0-windows</TargetFramework>
+    <TargetFramework Condition="'$(OS)' != 'Windows_NT'">net8.0</TargetFramework>
+    <UseWindowsForms Condition="'$(OS)' == 'Windows_NT'">true</UseWindowsForms>
+    <!-- allow running the tests when only a newer .NET runtime is installed -->
+    <RollForward>Major</RollForward>
     <ImplicitUsings>enable</ImplicitUsings>
     <!--<Nullable>enable</Nullable>-->
-    <UseWindowsForms>true</UseWindowsForms>
 
     <IsPackable>false</IsPackable>
 
@@ -34,7 +41,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\CADability.Forms\CADability.Forms.csproj" />
+    <ProjectReference Include="..\..\CADability.Forms\CADability.Forms.csproj" Condition="'$(OS)' == 'Windows_NT'" />
     <ProjectReference Include="..\..\CADability\CADability.csproj" />
     <!-- direct reference because tests use ACadSharp types; does not flow from
          CADability (PrivateAssets="all" there) -->
